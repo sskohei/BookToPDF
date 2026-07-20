@@ -1,8 +1,7 @@
 # 開発環境構築手順
 
-> **注意**: 2026-07-20 時点でソースコードは未着手。本ドキュメントは Phase 1 (MVP) 着手時に必要になる手順を
-> あらかじめ明記したものであり、プロジェクトの雛形（`package.json` 等）が作成された後に実際に有効になる。
-> 雛形作成後は、実際のコマンド・バージョンに合わせてこのドキュメントを更新すること。
+Next.js プロジェクトは `frontend/` サブディレクトリにある。以下のコマンドはすべて `frontend/` を
+カレントディレクトリとして実行する（`cd frontend` の後に実行する想定）。
 
 ## 必要環境
 
@@ -10,53 +9,59 @@
 - npm（Node.js に同梱のもので可。他のパッケージマネージャを使う場合はこのドキュメントを更新する）
 - モバイル実機での動作確認用に、iOS Safari / Android Chrome が使える端末（カメラ入力・OpenCV.js WASMの実行速度確認に必要）
 
-## 初回セットアップ（プロジェクト雛形作成時の手順）
+## 初回セットアップ
+
+`frontend/` の雛形（Next.js App Router, TypeScript, Tailwind CSS, ESLint, Vitest, Playwright）は
+セットアップ済み（issue #2）。クローン後は依存関係をインストールするだけでよい。
 
 ```bash
-# Next.js（App Router, TypeScript, Tailwind CSS）の雛形を作成
-npx create-next-app@latest . --typescript --app --tailwind --eslint
-
-# 依存関係のインストール（雛形作成時に自動実行されない場合）
+cd frontend
 npm install
+```
 
-# 追加ライブラリ（docs/tech-stack.md 参照）
+Phase 1 以降で必要になる追加ライブラリ（docs/tech-stack.md 参照）はまだ未導入のため、該当issue着手時に
+以下のようにインストールする。
+
+```bash
 npm install pdf-lib @dnd-kit/core @dnd-kit/sortable next-pwa
-npm install -D vitest @playwright/test
 
 # OpenCV.js は npm パッケージとしてではなく、公式ビルド済み opencv.js を
 # public/ 配下に配置するか、Worker内で動的にロードする形を取る
 # (詳細は実装時に docs/architecture.md の画像処理パイプラインを参照して決定する)
 ```
 
-`next.config.ts` に `output: 'export'` を設定し、静的エクスポート構成にする（API Routes/SSRなどの
-サーバー機能は使用しない）。
+`next.config.ts` に `output: 'export'` を設定済み（API Routes/SSRなどのサーバー機能は使用しない）。
 
 ## 開発サーバーの起動
 
 ```bash
+cd frontend
 npm run dev
 ```
 
-ブラウザで表示されるローカルURLにアクセスし、画像アップロード → 検出 → PDF出力までの流れを確認する。
+ブラウザで表示されるローカルURL（http://localhost:3000）にアクセスし、画像アップロード → 検出 → PDF出力までの流れを確認する。
 
 ## テストの実行
 
 ```bash
-# ユニットテスト（画像処理ロジック・PDF組み立てロジック）
+cd frontend
+
+# ユニットテスト（画像処理ロジック・PDF組み立てロジック、Vitest）
 npm run test
 
-# E2Eテスト（アップロード〜PDFダウンロードのフロー）
-npx playwright test
+# E2Eテスト（アップロード〜PDFダウンロードのフロー、Playwright）
+npm run test:e2e
 ```
 
 ## ビルド
 
 ```bash
+cd frontend
 npm run build
 ```
 
-`output: 'export'` の設定により `out/` に静的ファイルが出力される。これをそのまま
-Vercel / Cloudflare Pages / GitHub Pages 等にデプロイする。
+`output: 'export'` の設定により `frontend/out/` に静的ファイルが出力される。これをそのまま
+Vercel / Cloudflare Pages / GitHub Pages 等にデプロイする（デプロイ先の Root Directory は `frontend` を指定する）。
 
 ## 実機での確認
 

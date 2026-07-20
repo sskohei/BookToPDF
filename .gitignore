@@ -1,43 +1,10 @@
-# dependencies
-/node_modules
-/.pnp
-.pnp.js
-
-# testing
-/coverage
-
-# next.js
-/.next/
-/out/
-
-# production
-/build
+# App-specific ignores (node_modules, build output, etc.) live in frontend/.gitignore,
+# since the Next.js project is rooted at frontend/. This file only covers repo-wide
+# OS/editor artifacts.
 
 # misc
 .DS_Store
 *.pem
-
-# debug
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# local env files
-.env*.local
-.env
-
-# vercel
-.vercel
-
-# typescript
-*.tsbuildinfo
-next-env.d.ts
-
-# playwright (E2E test artifacts)
-/test-results/
-/playwright-report/
-/blob-report/
-/playwright/.cache/
 
 # editor
 .vscode/*
