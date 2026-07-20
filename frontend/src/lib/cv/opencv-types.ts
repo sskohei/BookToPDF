@@ -46,9 +46,14 @@ export interface CvModule {
   contourArea(contour: CvMat): number;
   arcLength(curve: CvMat, closed: boolean): number;
   approxPolyDP(curve: CvMat, approxCurve: CvMat, epsilon: number, closed: boolean): void;
+  /** 対応点など、座標配列から直接Matを作る(型は `CV_32FC2` を想定)。 */
+  matFromArray(rows: number, cols: number, type: number, array: number[]): CvMat;
+  getPerspectiveTransform(src: CvMat, dst: CvMat): CvMat;
+  warpPerspective(src: CvMat, dst: CvMat, transform: CvMat, dsize: CvSize): void;
   exceptionFromPtr(ptr: unknown): CvException;
   readonly COLOR_RGBA2GRAY: number;
   readonly COLOR_GRAY2RGBA: number;
   readonly RETR_EXTERNAL: number;
   readonly CHAIN_APPROX_SIMPLE: number;
+  readonly CV_32FC2: number;
 }

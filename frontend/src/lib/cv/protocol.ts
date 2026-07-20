@@ -17,6 +17,10 @@ export interface CvOperations {
     input: { imageData: ImageData };
     output: { found: true; corners: Corners } | { found: false };
   };
+  perspectiveTransform: {
+    input: { imageData: ImageData; corners: Corners };
+    output: { imageData: ImageData };
+  };
 }
 
 export type CvOpName = keyof CvOperations;

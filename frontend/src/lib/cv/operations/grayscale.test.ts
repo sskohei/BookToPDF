@@ -38,8 +38,12 @@ const unusedCvMembers: Pick<
   | "contourArea"
   | "arcLength"
   | "approxPolyDP"
+  | "matFromArray"
+  | "getPerspectiveTransform"
+  | "warpPerspective"
   | "RETR_EXTERNAL"
   | "CHAIN_APPROX_SIMPLE"
+  | "CV_32FC2"
 > = {
   MatVector: vi.fn() as unknown as CvModule["MatVector"],
   Size: vi.fn() as unknown as CvModule["Size"],
@@ -49,8 +53,12 @@ const unusedCvMembers: Pick<
   contourArea: vi.fn(() => 0),
   arcLength: vi.fn(() => 0),
   approxPolyDP: vi.fn(),
+  matFromArray: vi.fn() as unknown as CvModule["matFromArray"],
+  getPerspectiveTransform: vi.fn() as unknown as CvModule["getPerspectiveTransform"],
+  warpPerspective: vi.fn(),
   RETR_EXTERNAL: 0,
   CHAIN_APPROX_SIMPLE: 0,
+  CV_32FC2: 0,
 };
 
 beforeEach(() => {

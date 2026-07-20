@@ -95,11 +95,15 @@ function buildCv(contourSpecs: ContourSpec[]) {
     contourArea,
     arcLength: vi.fn(() => 100),
     approxPolyDP,
+    matFromArray: vi.fn() as unknown as CvModule["matFromArray"],
+    getPerspectiveTransform: vi.fn() as unknown as CvModule["getPerspectiveTransform"],
+    warpPerspective: vi.fn(),
     exceptionFromPtr: vi.fn(() => ({ msg: "unused" })),
     COLOR_RGBA2GRAY: 11,
     COLOR_GRAY2RGBA: 12,
     RETR_EXTERNAL: 21,
     CHAIN_APPROX_SIMPLE: 22,
+    CV_32FC2: 0,
   };
 
   return { cv, src, gray, blurred, edges, hierarchy, approx, contoursVector, contourMats };
