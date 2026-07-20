@@ -144,7 +144,7 @@ export function Capture({ uploadProgress }: CaptureProps) {
 
           <button
             type="button"
-            className="mt-[18px] w-full rounded-full bg-[#f97316] px-5 py-3 text-sm font-bold text-white shadow-[0_10px_20px_rgba(249,115,22,0.28)] sm:w-auto"
+            className="cursor-pointer mt-[18px] w-full rounded-full bg-[#f97316] px-5 py-3 text-sm font-bold text-white shadow-[0_10px_20px_rgba(249,115,22,0.28)] sm:w-auto"
           >
             {t("capture.uploadButton", { count: images.length })}
           </button>
