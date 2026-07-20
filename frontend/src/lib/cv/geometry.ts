@@ -28,3 +28,34 @@ export function orderCorners(points: readonly Point[]): Corners {
     bottomLeft: byDiff[3],
   };
 }
+
+function distance(a: Point, b: Point): number {
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+/**
+ * 四隅から透視補正後の出力サイズを求める。上辺・下辺のうち長い方を幅、
+ * 左辺・右辺のうち長い方を高さとする（`getPerspectiveTransform`の出力矩形サイズに使う）。
+ * 縮退した四隅（面積ほぼ0）でも0除算等が起きないよう、最小1にクランプする。
+ */
+export function quadSize(corners: Corners): { width: number; height: number } {
+  const { topLeft, topRight, bottomRight, bottomLeft } = corners;
+  const width = Math.max(distance(topLeft, topRight), distance(bottomLeft, bottomRight));
+  const height = Math.max(distance(topLeft, bottomLeft), distance(topRight, bottomRight));
+  return {
+    width: Math.max(1, Math.round(width)),
+    height: Math.max(1, Math.round(height)),
+  };
+}
+
+/**
+ * 単ページの本は通常縦長(width/height < 1)、見開きは横幅がほぼページ2枚分
+ * (width/height はおおよそ1.4〜2.0)になる。閾値はarchitecture.md/roadmap.mdに具体的な
+ * 指定がないため、単ページとの間に十分マージンを取れる値としてこのissueで選定した。
+ */
+const SPREAD_ASPECT_RATIO_THRESHOLD = 1.2;
+
+export function classifySpread(corners: Corners): "single" | "spread" {
+  const { width, height } = quadSize(corners);
+  return width / height >= SPREAD_ASPECT_RATIO_THRESHOLD ? "spread" : "single";
+}
