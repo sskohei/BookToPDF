@@ -3,23 +3,29 @@
 import { useRef, useState } from "react";
 import { useLanguage } from "@/i18n/LanguageProvider";
 import { usePageImages } from "@/state/usePageImages";
+import { usePageProcessing } from "@/state/usePageProcessing";
 import { PreviewGrid } from "./PreviewGrid";
 import { CameraIcon, FileIcon, TipIcon, UploadCloudIcon } from "./icons";
 
-type CaptureProps = {
-  /**
-   * 0-100 の進捗。issue#4以降の画像処理パイプラインが実装され、実際に処理が
-   * 走っている間だけ値を渡す想定。未指定の間は進捗バーごと表示しない。
-   */
-  uploadProgress?: number;
-};
+/** 四隅検出・透視補正のいずれかがまだ確定していない画像は「処理中」として扱う。 */
+function isProcessingPending(image: { corners?: unknown; processedPreviewUrls?: string[] }): boolean {
+  if (image.corners === undefined) return true;
+  return image.corners !== null && image.processedPreviewUrls === undefined;
+}
 
-export function Capture({ uploadProgress }: CaptureProps) {
-  const { images, addFiles, removeImage } = usePageImages();
+export function Capture() {
+  const { images, addFiles, removeImage, setCorners, setProcessedPreviewUrls } = usePageImages();
+  usePageProcessing(images, { setCorners, setProcessedPreviewUrls });
   const { t } = useLanguage();
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+
+  const pendingCount = images.filter(isProcessingPending).length;
+  const uploadProgress =
+    images.length > 0 && pendingCount > 0
+      ? ((images.length - pendingCount) / images.length) * 100
+      : undefined;
 
   const handleDrop: React.DragEventHandler<HTMLDivElement> = (event) => {
     event.preventDefault();
