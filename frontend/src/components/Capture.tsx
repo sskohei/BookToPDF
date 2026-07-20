@@ -93,7 +93,7 @@ export function Capture({ uploadProgress }: CaptureProps) {
             <button
               type="button"
               onClick={() => cameraInputRef.current?.click()}
-              className="flex items-center justify-center gap-1.5 rounded-full bg-[#f97316] px-4 py-2.5 text-sm font-bold text-white"
+              className="flex items-center justify-center gap-1.5 rounded-full bg-[#f97316] px-4 py-2.5 text-sm font-bold text-white cursor-pointer"
             >
               <CameraIcon />
               {t("capture.button.camera")}
@@ -101,7 +101,7 @@ export function Capture({ uploadProgress }: CaptureProps) {
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="flex items-center justify-center gap-1.5 rounded-full border border-[var(--ghost-border)] bg-[var(--ghost-bg)] px-4 py-2.5 text-sm font-bold text-[var(--chip-fg)]"
+              className="flex items-center justify-center gap-1.5 rounded-full border border-[var(--ghost-border)] bg-[var(--ghost-bg)] px-4 py-2.5 text-sm font-bold text-[var(--chip-fg)] cursor-pointer"
             >
               <FileIcon />
               {t("capture.button.chooseFiles")}

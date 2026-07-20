@@ -23,7 +23,7 @@ export function ThemeToggle() {
         type="button"
         onClick={() => setTheme("light")}
         aria-pressed={current === "light"}
-        className={`rounded-full px-4 py-1.5 text-xs font-bold transition-colors ${
+        className={`cursor-pointer rounded-full px-4 py-1.5 text-xs font-bold transition-colors ${
           current === "light"
             ? "bg-[#f97316] text-white"
             : "bg-transparent text-[var(--muted)]"
@@ -35,7 +35,7 @@ export function ThemeToggle() {
         type="button"
         onClick={() => setTheme("dark")}
         aria-pressed={current === "dark"}
-        className={`rounded-full px-4 py-1.5 text-xs font-bold transition-colors ${
+        className={`cursor-pointer rounded-full px-4 py-1.5 text-xs font-bold transition-colors ${
           current === "dark"
             ? "bg-[#f97316] text-white"
             : "bg-transparent text-[var(--muted)]"
