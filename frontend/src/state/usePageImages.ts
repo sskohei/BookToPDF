@@ -2,7 +2,13 @@
 
 import { useCallback, useState } from "react";
 import type { Corners } from "../lib/cv/geometry";
-import { addPageImages, removePageImage, setPageImageCorners, type PageImage } from "./pageImages";
+import {
+  addPageImages,
+  removePageImage,
+  setPageImageCorners,
+  setProcessedPreviewUrls,
+  type PageImage,
+} from "./pageImages";
 
 export function usePageImages() {
   const [images, setImages] = useState<PageImage[]>([]);
@@ -23,5 +29,15 @@ export function usePageImages() {
     setImages((current) => setPageImageCorners(current, id, corners));
   }, []);
 
-  return { images, addFiles, removeImage, setCorners };
+  const setProcessedPreviewUrlsForImage = useCallback((id: string, urls: string[]) => {
+    setImages((current) => setProcessedPreviewUrls(current, id, urls));
+  }, []);
+
+  return {
+    images,
+    addFiles,
+    removeImage,
+    setCorners,
+    setProcessedPreviewUrls: setProcessedPreviewUrlsForImage,
+  };
 }

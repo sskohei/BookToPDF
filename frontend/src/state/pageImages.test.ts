@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Corners } from "../lib/cv/geometry";
-import { addPageImages, removePageImage, setPageImageCorners } from "./pageImages";
+import {
+  addPageImages,
+  removePageImage,
+  setPageImageCorners,
+  setProcessedPreviewUrls,
+} from "./pageImages";
 
 function fakeFile(name: string): File {
   return new File(["dummy"], name, { type: "image/jpeg" });
@@ -53,6 +58,24 @@ describe("removePageImage", () => {
     expect(result).toHaveLength(1);
     expect(revokeObjectUrl).not.toHaveBeenCalled();
   });
+
+  it("also revokes processedPreviewUrls of the removed image", () => {
+    const createObjectUrl = vi.fn((file: File) => `blob:${file.name}`);
+    const revokeObjectUrl = vi.fn();
+    const images = addPageImages([], [fakeFile("a.jpg")], createObjectUrl);
+    const withProcessed = setProcessedPreviewUrls(
+      images,
+      images[0].id,
+      ["blob:processed-1", "blob:processed-2"],
+      vi.fn(),
+    );
+
+    removePageImage(withProcessed, images[0].id, revokeObjectUrl);
+
+    expect(revokeObjectUrl).toHaveBeenCalledWith("blob:a.jpg");
+    expect(revokeObjectUrl).toHaveBeenCalledWith("blob:processed-1");
+    expect(revokeObjectUrl).toHaveBeenCalledWith("blob:processed-2");
+  });
 });
 
 describe("setPageImageCorners", () => {
@@ -91,5 +114,43 @@ describe("setPageImageCorners", () => {
     const result = setPageImageCorners(images, "missing-id", corners);
 
     expect(result).toEqual(images);
+  });
+});
+
+describe("setProcessedPreviewUrls", () => {
+  it("sets processedPreviewUrls on the matching image only", () => {
+    const createObjectUrl = vi.fn((file: File) => `blob:${file.name}`);
+    const revokeObjectUrl = vi.fn();
+    const images = addPageImages([], [fakeFile("a.jpg"), fakeFile("b.jpg")], createObjectUrl);
+
+    const result = setProcessedPreviewUrls(images, images[0].id, ["blob:corrected"], revokeObjectUrl);
+
+    expect(result[0].processedPreviewUrls).toEqual(["blob:corrected"]);
+    expect(result[1].processedPreviewUrls).toBeUndefined();
+    expect(revokeObjectUrl).not.toHaveBeenCalled();
+  });
+
+  it("revokes the previous urls before replacing them", () => {
+    const createObjectUrl = vi.fn((file: File) => `blob:${file.name}`);
+    const revokeObjectUrl = vi.fn();
+    const images = addPageImages([], [fakeFile("a.jpg")], createObjectUrl);
+    const first = setProcessedPreviewUrls(images, images[0].id, ["blob:v1-left", "blob:v1-right"], revokeObjectUrl);
+
+    const result = setProcessedPreviewUrls(first, images[0].id, ["blob:v2"], revokeObjectUrl);
+
+    expect(revokeObjectUrl).toHaveBeenCalledWith("blob:v1-left");
+    expect(revokeObjectUrl).toHaveBeenCalledWith("blob:v1-right");
+    expect(result[0].processedPreviewUrls).toEqual(["blob:v2"]);
+  });
+
+  it("is a no-op when the id does not exist", () => {
+    const createObjectUrl = vi.fn((file: File) => `blob:${file.name}`);
+    const revokeObjectUrl = vi.fn();
+    const images = addPageImages([], [fakeFile("a.jpg")], createObjectUrl);
+
+    const result = setProcessedPreviewUrls(images, "missing-id", ["blob:corrected"], revokeObjectUrl);
+
+    expect(result).toEqual(images);
+    expect(revokeObjectUrl).not.toHaveBeenCalled();
   });
 });
