@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { useLanguage } from "@/i18n/LanguageProvider";
 import { usePageImages } from "@/state/usePageImages";
 import { PreviewGrid } from "./PreviewGrid";
 import { CameraIcon, FileIcon, TipIcon, UploadCloudIcon } from "./icons";
@@ -15,6 +16,7 @@ type CaptureProps = {
 
 export function Capture({ uploadProgress }: CaptureProps) {
   const { images, addFiles, removeImage } = usePageImages();
+  const { t } = useLanguage();
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
@@ -63,13 +65,13 @@ export function Capture({ uploadProgress }: CaptureProps) {
 
       <div className="mb-5 flex items-center justify-between">
         <h1 className="text-xl font-bold text-[var(--text)] sm:text-2xl">
-          {images.length === 0 ? "ページを追加" : "ページを確認"}
+          {images.length === 0 ? t("capture.title.empty") : t("capture.title.filled")}
         </h1>
         <span
           data-testid="page-count"
           className="whitespace-nowrap rounded-full bg-[var(--chip-bg)] px-3 py-1 text-xs font-bold text-[var(--chip-fg)]"
         >
-          {images.length}枚
+          {t("capture.pageCount", { count: images.length })}
         </span>
       </div>
 
@@ -85,7 +87,7 @@ export function Capture({ uploadProgress }: CaptureProps) {
             <UploadCloudIcon />
           </div>
           <p className="mb-5 text-sm font-bold text-[var(--text)] sm:text-base">
-            ここにドラッグ&ドロップ
+            {t("capture.dropzone.label")}
           </p>
           <div className="flex w-full flex-col gap-2.5 sm:w-auto sm:flex-row">
             <button
@@ -94,7 +96,7 @@ export function Capture({ uploadProgress }: CaptureProps) {
               className="flex items-center justify-center gap-1.5 rounded-full bg-[#f97316] px-4 py-2.5 text-sm font-bold text-white"
             >
               <CameraIcon />
-              カメラで撮影
+              {t("capture.button.camera")}
             </button>
             <button
               type="button"
@@ -102,18 +104,18 @@ export function Capture({ uploadProgress }: CaptureProps) {
               className="flex items-center justify-center gap-1.5 rounded-full border border-[var(--ghost-border)] bg-[var(--ghost-bg)] px-4 py-2.5 text-sm font-bold text-[var(--chip-fg)]"
             >
               <FileIcon />
-              ファイルを選択
+              {t("capture.button.chooseFiles")}
             </button>
           </div>
           <div className="mt-4 flex items-start gap-2 rounded-xl bg-[var(--tip-bg)] p-3 text-left">
             <TipIcon className="mt-0.5 shrink-0 text-[var(--tip-icon)]" />
             <p className="m-0 text-[11.5px] leading-relaxed text-[var(--muted)]">
-              <b className="text-[var(--tip-label)]">撮影のコツ:</b>{" "}
-              明るい場所で、ページ全体が影なく写るように。
+              <b className="text-[var(--tip-label)]">{t("capture.tip.label")}</b>{" "}
+              {t("capture.tip.body")}
             </p>
           </div>
           <p className="mt-3.5 text-[11px] font-medium text-[var(--faint)]">
-            対応形式: JPG・PNG・HEIC / 1枚あたり最大 10MB
+            {t("capture.footnote")}
           </p>
         </div>
       ) : (
@@ -122,7 +124,7 @@ export function Capture({ uploadProgress }: CaptureProps) {
             <div className="mb-[18px]">
               <div className="mb-1 flex justify-between text-[11.5px] font-semibold">
                 <span className="text-[var(--muted)]">
-                  アップロード中… {Math.round(uploadProgress)}%
+                  {t("capture.uploading", { progress: Math.round(uploadProgress) })}
                 </span>
               </div>
               <div className="h-2 overflow-hidden rounded-full bg-[var(--track)]">
@@ -144,7 +146,7 @@ export function Capture({ uploadProgress }: CaptureProps) {
             type="button"
             className="mt-[18px] w-full rounded-full bg-[#f97316] px-5 py-3 text-sm font-bold text-white shadow-[0_10px_20px_rgba(249,115,22,0.28)] sm:w-auto"
           >
-            {images.length}枚をアップロード
+            {t("capture.uploadButton", { count: images.length })}
           </button>
         </>
       )}
