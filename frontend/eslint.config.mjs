@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // ベンダリングしている公式ビルド済みOpenCV.js（issue #4, public/opencv/README.md参照）。
+    // 自前のコードではないためlint対象外にする。
+    "public/opencv/**",
   ]),
 ]);
 
