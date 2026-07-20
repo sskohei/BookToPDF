@@ -33,7 +33,7 @@ export function PreviewGrid({ images, onRemove, onAddMore }: PreviewGridProps) {
             type="button"
             onClick={() => onRemove(image.id)}
             aria-label={t("previewGrid.removeAria", { index: index + 1 })}
-            className="absolute top-1 right-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/50 text-white"
+            className="cursor-pointer absolute top-1 right-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/50 text-white"
           >
             <CloseIcon />
           </button>
@@ -42,7 +42,7 @@ export function PreviewGrid({ images, onRemove, onAddMore }: PreviewGridProps) {
       <button
         type="button"
         onClick={onAddMore}
-        className="flex aspect-[3/4] flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-[var(--add-border)] text-[var(--chip-fg)]"
+        className="cursor-pointer flex aspect-[3/4] flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-[var(--add-border)] text-[var(--chip-fg)]"
       >
         <PlusIcon />
         <span className="text-[10px] font-bold">{t("previewGrid.addTile")}</span>
