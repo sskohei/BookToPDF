@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { addPageImages, removePageImage } from "./pageImages";
+import type { Corners } from "../lib/cv/geometry";
+import { addPageImages, removePageImage, setPageImageCorners } from "./pageImages";
 
 function fakeFile(name: string): File {
   return new File(["dummy"], name, { type: "image/jpeg" });
@@ -51,5 +52,44 @@ describe("removePageImage", () => {
 
     expect(result).toHaveLength(1);
     expect(revokeObjectUrl).not.toHaveBeenCalled();
+  });
+});
+
+describe("setPageImageCorners", () => {
+  const corners: Corners = {
+    topLeft: { x: 1, y: 1 },
+    topRight: { x: 9, y: 1 },
+    bottomRight: { x: 9, y: 9 },
+    bottomLeft: { x: 1, y: 9 },
+  };
+
+  it("sets corners on the matching image only", () => {
+    const createObjectUrl = vi.fn((file: File) => `blob:${file.name}`);
+    const images = addPageImages([], [fakeFile("a.jpg"), fakeFile("b.jpg")], createObjectUrl);
+    const target = images[0];
+
+    const result = setPageImageCorners(images, target.id, corners);
+
+    expect(result[0].corners).toEqual(corners);
+    expect(result[1].corners).toBeUndefined();
+  });
+
+  it("can clear corners back to null (detection attempted but not found)", () => {
+    const createObjectUrl = vi.fn((file: File) => `blob:${file.name}`);
+    const images = addPageImages([], [fakeFile("a.jpg")], createObjectUrl);
+    const withCorners = setPageImageCorners(images, images[0].id, corners);
+
+    const result = setPageImageCorners(withCorners, images[0].id, null);
+
+    expect(result[0].corners).toBeNull();
+  });
+
+  it("is a no-op when the id does not exist", () => {
+    const createObjectUrl = vi.fn((file: File) => `blob:${file.name}`);
+    const images = addPageImages([], [fakeFile("a.jpg")], createObjectUrl);
+
+    const result = setPageImageCorners(images, "missing-id", corners);
+
+    expect(result).toEqual(images);
   });
 });
