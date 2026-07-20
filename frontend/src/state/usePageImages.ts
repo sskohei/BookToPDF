@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { addPageImages, removePageImage, type PageImage } from "./pageImages";
+import type { Corners } from "../lib/cv/geometry";
+import { addPageImages, removePageImage, setPageImageCorners, type PageImage } from "./pageImages";
 
 export function usePageImages() {
   const [images, setImages] = useState<PageImage[]>([]);
@@ -18,5 +19,9 @@ export function usePageImages() {
     setImages((current) => removePageImage(current, id));
   }, []);
 
-  return { images, addFiles, removeImage };
+  const setCorners = useCallback((id: string, corners: Corners | null) => {
+    setImages((current) => setPageImageCorners(current, id, corners));
+  }, []);
+
+  return { images, addFiles, removeImage, setCorners };
 }

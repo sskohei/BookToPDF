@@ -1,3 +1,4 @@
+import { runDetectCorners } from "../lib/cv/operations/detectCorners";
 import { runGrayscale } from "../lib/cv/operations/grayscale";
 import type { CvModule } from "../lib/cv/opencv-types";
 import type { CvJobRequest, CvJobResult, CvWorkerOutboundMessage } from "../lib/cv/protocol";
@@ -45,6 +46,14 @@ function runOperation(cv: CvModule, request: CvJobRequest): CvJobResult {
         op: "grayscale",
         ok: true,
         output: runGrayscale(cv, request.input),
+      };
+    case "detectCorners":
+      return {
+        kind: "job-result",
+        id: request.id,
+        op: "detectCorners",
+        ok: true,
+        output: runDetectCorners(cv, request.input),
       };
     default: {
       const exhaustiveCheck: never = request;

@@ -13,6 +13,7 @@ class FakeImageData {
 function fakeMat(cols: number, rows: number): CvMat & { deleted: boolean } {
   const mat = {
     data: new Uint8Array(cols * rows * 4),
+    data32S: new Int32Array(0),
     cols,
     rows,
     deleted: false,
@@ -22,6 +23,35 @@ function fakeMat(cols: number, rows: number): CvMat & { deleted: boolean } {
   };
   return mat;
 }
+
+/**
+ * runGrayscaleが使わないCvModuleメンバー（issue #5で追加）を埋めるためのスタブ。
+ * このテストの関心事ではないので中身は使われない。
+ */
+const unusedCvMembers: Pick<
+  CvModule,
+  | "MatVector"
+  | "Size"
+  | "GaussianBlur"
+  | "Canny"
+  | "findContours"
+  | "contourArea"
+  | "arcLength"
+  | "approxPolyDP"
+  | "RETR_EXTERNAL"
+  | "CHAIN_APPROX_SIMPLE"
+> = {
+  MatVector: vi.fn() as unknown as CvModule["MatVector"],
+  Size: vi.fn() as unknown as CvModule["Size"],
+  GaussianBlur: vi.fn(),
+  Canny: vi.fn(),
+  findContours: vi.fn(),
+  contourArea: vi.fn(() => 0),
+  arcLength: vi.fn(() => 0),
+  approxPolyDP: vi.fn(),
+  RETR_EXTERNAL: 0,
+  CHAIN_APPROX_SIMPLE: 0,
+};
 
 beforeEach(() => {
   vi.stubGlobal("ImageData", FakeImageData);
@@ -44,6 +74,7 @@ describe("runGrayscale", () => {
       }) as unknown as CvModule["Mat"],
       matFromImageData: vi.fn(() => src),
       cvtColor,
+      ...unusedCvMembers,
       exceptionFromPtr: vi.fn(() => ({ msg: "unused" })),
       COLOR_RGBA2GRAY: 11,
       COLOR_GRAY2RGBA: 12,
@@ -70,6 +101,7 @@ describe("runGrayscale", () => {
       cvtColor: vi.fn(() => {
         throw new Error("boom");
       }),
+      ...unusedCvMembers,
       exceptionFromPtr: vi.fn(() => ({ msg: "unused" })),
       COLOR_RGBA2GRAY: 11,
       COLOR_GRAY2RGBA: 12,
