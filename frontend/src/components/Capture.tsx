@@ -6,6 +6,7 @@ import type { Corners } from "@/lib/cv/geometry";
 import { usePageImages } from "@/state/usePageImages";
 import { usePageProcessing } from "@/state/usePageProcessing";
 import { CornerEditor } from "./CornerEditor";
+import { ExportButton } from "./ExportButton";
 import { ImageViewer } from "./ImageViewer";
 import { PageReorder } from "./PageReorder";
 import { CameraIcon, FileIcon, TipIcon, UploadCloudIcon } from "./icons";
@@ -168,12 +169,7 @@ export function Capture() {
             onView={setViewingImageId}
           />
 
-          <button
-            type="button"
-            className="cursor-pointer mt-[18px] w-full rounded-full bg-[#f97316] px-5 py-3 text-sm font-bold text-white shadow-[0_10px_20px_rgba(249,115,22,0.28)] sm:w-auto"
-          >
-            {t("capture.uploadButton", { count: images.length })}
-          </button>
+          <ExportButton images={images} disabled={pendingCount > 0} />
         </>
       )}
 
