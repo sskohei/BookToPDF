@@ -82,11 +82,11 @@ function makeContourPass(specs: ContourSpec[]) {
 }
 
 /**
- * `runDetectCorners`は1回目(元画像)で見つからなければ`equalizeHist`後の画像で2回目を試みる。
- * `passes[0]`が1回目の輪郭候補、`passes[1]`が2回目(equalizeHist後)の輪郭候補(省略時は0件、
- * つまり2回目も見つからない)。`Mat`/`getStructuringElement`は呼ばれるたびに新しいfakeMatを
- * 生成し`createdMats`/`createdKernels`に生成順で記録する(内部でのMat確保回数がパス数によって
- * 可変なため、固定キューではなく記録配列でテスト側から参照する)。
+ * `runDetectCorners`は1回目(元画像)と2回目(`equalizeHist`後)を常に両方試し、両者の結果を比較して
+ * 採用する候補を選ぶ。`passes[0]`が1回目の輪郭候補、`passes[1]`が2回目の輪郭候補(省略時は0件)。
+ * `Mat`/`getStructuringElement`は呼ばれるたびに新しいfakeMatを生成し`createdMats`/
+ * `createdKernels`に生成順で記録する(gray→blurred→equalized→(1回目)edges/hierarchy/approx→
+ * (2回目)edges/hierarchy/approxの順で常に9個)。
  */
 function buildCv(passes: ContourSpec[][]) {
   const [firstPassSpecs, secondPassSpecs = []] = passes;
@@ -249,8 +249,8 @@ describe("runDetectCorners", () => {
     ]);
     const result = runDetectCorners(cv, makeInput(100, 100));
 
-    // gray=createdMats[0], blurred=createdMats[1], edges/hierarchy/approx(1回目)=createdMats[2..4]
-    const [gray, blurred, edges, hierarchy] = createdMats;
+    // gray=[0], blurred=[1], equalized=[2], edges/hierarchy/approx(1回目)=[3..5]
+    const [gray, blurred, , edges, hierarchy] = createdMats;
     const [kernel] = createdKernels;
 
     expect(cv.cvtColor).toHaveBeenNthCalledWith(1, src, gray, cv.COLOR_RGBA2GRAY);
@@ -278,7 +278,7 @@ describe("runDetectCorners", () => {
       corners: { topLeft, topRight, bottomRight, bottomLeft },
     });
     expect(minAreaRect).not.toHaveBeenCalled();
-    expect(equalizeHist).not.toHaveBeenCalled();
+    expect(equalizeHist).toHaveBeenCalledTimes(1);
 
     expect(src.deleted).toBe(true);
     expect(createdMats.every((mat) => mat.deleted)).toBe(true);
@@ -323,9 +323,10 @@ describe("runDetectCorners", () => {
       corners: { topLeft, topRight, bottomRight, bottomLeft },
     });
     // epsilon比[0.01, 0.02, 0.03, ...]のうち3段階目(index 2)で4点に収束し、そこで打ち切る。
+    // (2回目のパスは輪郭候補なしのため`approxPolyDP`は呼ばれない)
     expect(cv.approxPolyDP).toHaveBeenCalledTimes(3);
     expect(minAreaRect).not.toHaveBeenCalled();
-    expect(equalizeHist).not.toHaveBeenCalled();
+    expect(equalizeHist).toHaveBeenCalledTimes(1);
   });
 
   it("falls back to minAreaRect when the largest qualifying contour never converges to 4 points", () => {
@@ -370,7 +371,7 @@ describe("runDetectCorners", () => {
     });
   });
 
-  it("falls back to a second pass with equalizeHist when the first pass finds nothing, and returns its result", () => {
+  it("uses the second pass's (equalizeHist) result when the first pass finds nothing", () => {
     const triangle: Point[] = [
       { x: 0, y: 0 },
       { x: 5, y: 0 },
@@ -394,11 +395,11 @@ describe("runDetectCorners", () => {
       corners: { topLeft, topRight, bottomRight, bottomLeft },
     });
 
-    // gray=[0], blurred=[1], (1回目)edges/hierarchy/approx=[2..4], equalized=[5],
+    // gray=[0], blurred=[1], equalized=[2], (1回目)edges/hierarchy/approx=[3..5],
     // (2回目)edges/hierarchy/approx=[6..8]
     expect(createdMats).toHaveLength(9);
     const blurred = createdMats[1];
-    const equalized = createdMats[5];
+    const equalized = createdMats[2];
     const edges2 = createdMats[6];
     const hierarchy2 = createdMats[7];
 
@@ -467,5 +468,57 @@ describe("runDetectCorners", () => {
     for (const contour of pass1.contourMats) {
       expect(contour.deleted).toBe(true);
     }
+  });
+
+  it("prefers a larger candidate found in the second pass over a smaller one already found in the first pass", () => {
+    // ページ内の表・図版のような、ページより小さいがコントラストの強い矩形が1回目のパスで
+    // 先に(面積条件を満たした上で)見つかっても、2回目(equalizeHist後)のパスでページ本体らしき
+    // より大きい矩形が見つかれば、そちらを優先しなければならない。
+    const tableQuad: Point[] = [
+      { x: 100, y: 100 },
+      { x: 770, y: 100 },
+      { x: 770, y: 770 },
+      { x: 100, y: 770 },
+    ];
+    const pageTopLeft: Point = { x: 20, y: 20 };
+    const pageTopRight: Point = { x: 980, y: 20 };
+    const pageBottomRight: Point = { x: 980, y: 980 };
+    const pageBottomLeft: Point = { x: 20, y: 980 };
+    const pageQuad = [pageBottomRight, pageTopLeft, pageBottomLeft, pageTopRight];
+
+    const { cv } = buildCv([
+      [{ points: tableQuad, area: 670 * 670 }], // 画像の約45% (新閾値0.4は超える)
+      [{ points: pageQuad, area: 960 * 960 }], // 画像の約92%
+    ]);
+
+    const result = runDetectCorners(cv, makeInput(1000, 1000));
+
+    expect(result).toEqual({
+      found: true,
+      corners: {
+        topLeft: pageTopLeft,
+        topRight: pageTopRight,
+        bottomRight: pageBottomRight,
+        bottomLeft: pageBottomLeft,
+      },
+    });
+  });
+
+  it("rejects a converged contour whose area is below the (raised) minimum area ratio", () => {
+    // 画像全体の25%程度の矩形は、旧閾値(0.1)なら採用されていたが、新閾値(0.4)では
+    // ページ本体としては小さすぎるとみなして棄却されるべき。
+    const quad: Point[] = [
+      { x: 10, y: 10 },
+      { x: 60, y: 10 },
+      { x: 60, y: 60 },
+      { x: 10, y: 60 },
+    ];
+
+    const { cv, minAreaRect } = buildCv([[{ points: quad, area: 2500 }]]);
+
+    const result = runDetectCorners(cv, makeInput(100, 100));
+
+    expect(result).toEqual({ found: false });
+    expect(minAreaRect).not.toHaveBeenCalled();
   });
 });
