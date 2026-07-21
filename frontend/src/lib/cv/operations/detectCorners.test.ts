@@ -84,22 +84,27 @@ function makeContourPass(specs: ContourSpec[]) {
 }
 
 /**
- * `runDetectCorners`は1回目(元画像)と2回目(`equalizeHist`後)を常に両方試し、両者の結果を比較して
- * 採用する候補を選ぶ。`passes[0]`が1回目の輪郭候補、`passes[1]`が2回目の輪郭候補(省略時は0件)。
- * `Mat`/`getStructuringElement`は呼ばれるたびに新しいfakeMatを生成し`createdMats`/
- * `createdKernels`に生成順で記録する(gray→blurred→equalized→(1回目)edges/hierarchy/approx→
- * (2回目)edges/hierarchy/approxの順で常に9個)。
+ * `runDetectCorners`はCannyベース1回目(元画像)・2回目(`equalizeHist`後)・Otsu二値化ベース
+ * (3回目、常に元画像に対して行う)を常に全て試し、結果を比較して採用する候補を選ぶ。
+ * `passes[0]`が1回目(Canny/元画像)、`passes[1]`が2回目(Canny/equalizeHist後)、`passes[2]`が
+ * 3回目(Otsu二値化)の輪郭候補(いずれも省略時は0件)。`Mat`/`getStructuringElement`は呼ばれる
+ * たびに新しいfakeMatを生成し`createdMats`/`createdKernels`に生成順で記録する
+ * (gray→blurred→equalized→(1回目)edges/hierarchy/approx→(2回目)edges/hierarchy/approx→
+ * (3回目)mask/opened/closed/hierarchy/approxの順で常に14個、カーネルはCanny用2個+
+ * Otsu用(open/close)2個の常に4個)。
  */
-function buildCv(passes: ContourSpec[][]) {
-  const [firstPassSpecs, secondPassSpecs = []] = passes;
+function buildCv(passes: ContourSpec[][], options: { blurredData?: Uint8Array } = {}) {
+  const [firstPassSpecs, secondPassSpecs = [], thirdPassSpecs = []] = passes;
 
   const src = fakeMat();
   const pass1 = makeContourPass(firstPassSpecs);
   const pass2 = makeContourPass(secondPassSpecs);
+  const pass3 = makeContourPass(thirdPassSpecs);
 
   const specByContour = new Map<CvMat, ContourSpec>();
   firstPassSpecs.forEach((spec, i) => specByContour.set(pass1.contourMats[i], spec));
   secondPassSpecs.forEach((spec, i) => specByContour.set(pass2.contourMats[i], spec));
+  thirdPassSpecs.forEach((spec, i) => specByContour.set(pass3.contourMats[i], spec));
 
   const attemptCounts = new Map<CvMat, number>();
   let currentArea = 0;
@@ -115,7 +120,7 @@ function buildCv(passes: ContourSpec[][]) {
   });
   const contourArea = vi.fn(() => currentArea);
 
-  const vectors = [pass1.vector, pass2.vector];
+  const vectors = [pass1.vector, pass2.vector, pass3.vector];
   let vectorCalls = 0;
   const MatVectorCtor = vi.fn(function () {
     return vectors[vectorCalls++];
@@ -124,6 +129,11 @@ function buildCv(passes: ContourSpec[][]) {
   const createdMats: FakeMat[] = [];
   const MatCtor = vi.fn(function () {
     const mat = fakeMat();
+    // 2番目に生成されるMatが`blurred`(gray=0, blurred=1)。Otsu二値化パスの背景輝度判定
+    // (`averageCornerBrightness`)はこの`blurred`を読むため、テストからその画素値を注入できるようにする。
+    if (createdMats.length === 1 && options.blurredData) {
+      mat.data = options.blurredData;
+    }
     createdMats.push(mat);
     return mat as unknown as CvMat;
   });
@@ -144,6 +154,7 @@ function buildCv(passes: ContourSpec[][]) {
   const rotatedRectPoints = vi.fn(() => [] as Array<{ x: number; y: number }>);
   const morphologyEx = vi.fn();
   const equalizeHist = vi.fn();
+  const threshold = vi.fn();
 
   const cv: CvModule = {
     Mat: MatCtor as unknown as CvModule["Mat"],
@@ -174,7 +185,7 @@ function buildCv(passes: ContourSpec[][]) {
     HoughLinesP: vi.fn(),
     getRotationMatrix2D: vi.fn() as unknown as CvModule["getRotationMatrix2D"],
     warpAffine: vi.fn(),
-    threshold: vi.fn(),
+    threshold,
     boundingRect: vi.fn() as unknown as CvModule["boundingRect"],
     minMaxLoc: vi.fn() as unknown as CvModule["minMaxLoc"],
     convertScaleAbs: vi.fn(),
@@ -190,10 +201,11 @@ function buildCv(passes: ContourSpec[][]) {
     CHAIN_APPROX_SIMPLE: 22,
     CV_32FC2: 0,
     MORPH_CLOSE: 31,
+    MORPH_OPEN: 30,
     MORPH_RECT: 32,
     THRESH_BINARY: 0,
-    THRESH_BINARY_INV: 0,
-    THRESH_OTSU: 0,
+    THRESH_BINARY_INV: 1,
+    THRESH_OTSU: 8,
     BORDER_CONSTANT: 0,
     INTER_LINEAR: 0,
   };
@@ -205,9 +217,11 @@ function buildCv(passes: ContourSpec[][]) {
     createdKernels,
     pass1,
     pass2,
+    pass3,
     minAreaRect,
     rotatedRectPoints,
     equalizeHist,
+    threshold,
   };
 }
 
@@ -419,8 +433,8 @@ describe("runDetectCorners", () => {
     });
 
     // gray=[0], blurred=[1], equalized=[2], (1回目)edges/hierarchy/approx=[3..5],
-    // (2回目)edges/hierarchy/approx=[6..8]
-    expect(createdMats).toHaveLength(9);
+    // (2回目)edges/hierarchy/approx=[6..8], (3回目=Otsu)mask/opened/closed/hierarchy/approx=[9..13]
+    expect(createdMats).toHaveLength(14);
     const blurred = createdMats[1];
     const equalized = createdMats[2];
     const edges2 = createdMats[6];
@@ -446,7 +460,7 @@ describe("runDetectCorners", () => {
     expect(minAreaRect).not.toHaveBeenCalled();
 
     expect(createdMats.every((mat) => mat.deleted)).toBe(true);
-    expect(createdKernels).toHaveLength(2);
+    expect(createdKernels).toHaveLength(4);
     expect(createdKernels.every((mat) => mat.deleted)).toBe(true);
     expect(pass1.vector.deleted).toBe(true);
     expect(pass2.vector.deleted).toBe(true);
@@ -543,5 +557,92 @@ describe("runDetectCorners", () => {
 
     expect(result).toEqual({ found: false });
     expect(minAreaRect).not.toHaveBeenCalled();
+  });
+
+  describe("Otsu二値化ベースの検出(質感のある背景を持つ実写真向けの3回目のパス)", () => {
+    it("uses the Otsu-threshold pass's result when both Canny passes find nothing", () => {
+      // 木目調の机など質感のある背景を持つ実写真では、Cannyベースの2パスは輪郭が閉じたループを
+      // 形成できず失敗しやすい(実写真での検証で確認済み)。その場合でもOtsu二値化ベースの
+      // 3回目のパスがページ全体を検出できれば採用されるべき。
+      const topLeft: Point = { x: 10, y: 10 };
+      const topRight: Point = { x: 90, y: 10 };
+      const bottomRight: Point = { x: 90, y: 90 };
+      const bottomLeft: Point = { x: 10, y: 90 };
+      const pageQuad = [bottomRight, topLeft, bottomLeft, topRight];
+
+      const { cv, pass3 } = buildCv([
+        [], // 1回目(Canny/元画像): 何も見つからない
+        [], // 2回目(Canny/equalizeHist後): 何も見つからない
+        [{ points: pageQuad, area: 6400 }], // 3回目(Otsu二値化): ページ全体を検出
+      ]);
+
+      const result = runDetectCorners(cv, makeInput(100, 100));
+
+      expect(result).toEqual({
+        found: true,
+        corners: { topLeft, topRight, bottomRight, bottomLeft },
+      });
+      expect(pass3.vector.deleted).toBe(true);
+      for (const contour of pass3.contourMats) {
+        expect(contour.deleted).toBe(true);
+      }
+    });
+
+    it("thresholds with THRESH_BINARY_INV when the sampled background corners are bright", () => {
+      const width = 100;
+      const height = 100;
+      const brightData = new Uint8Array(width * height).fill(200);
+
+      const { cv, threshold } = buildCv([[], [], []], { blurredData: brightData });
+
+      runDetectCorners(cv, makeInput(width, height));
+
+      expect(threshold).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        0,
+        255,
+        cv.THRESH_BINARY_INV | cv.THRESH_OTSU,
+      );
+    });
+
+    it("thresholds with THRESH_BINARY when the sampled background corners are dark", () => {
+      const width = 100;
+      const height = 100;
+      const darkData = new Uint8Array(width * height).fill(30);
+
+      const { cv, threshold } = buildCv([[], [], []], { blurredData: darkData });
+
+      runDetectCorners(cv, makeInput(width, height));
+
+      expect(threshold).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        0,
+        255,
+        cv.THRESH_BINARY | cv.THRESH_OTSU,
+      );
+    });
+
+    it("opens then closes the thresholded mask with distinct kernels before findContours", () => {
+      const { cv, createdKernels } = buildCv([[], [], []]);
+
+      runDetectCorners(cv, makeInput(100, 100));
+
+      // カーネルは(Canny 1回目用、Canny 2回目用) + (Otsu用open, close)の順で生成される。
+      const [, , openKernel, closeKernel] = createdKernels;
+      expect(cv.morphologyEx).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        cv.MORPH_OPEN,
+        openKernel,
+      );
+      expect(cv.morphologyEx).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        cv.MORPH_CLOSE,
+        closeKernel,
+      );
+    });
   });
 });
