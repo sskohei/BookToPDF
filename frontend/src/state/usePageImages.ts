@@ -5,6 +5,7 @@ import type { Corners } from "../lib/cv/geometry";
 import {
   addPageImages,
   removePageImage,
+  reorderPageImages,
   setPageImageCorners,
   setProcessedPreviewUrls,
   type PageImage,
@@ -33,10 +34,15 @@ export function usePageImages() {
     setImages((current) => setProcessedPreviewUrls(current, id, urls));
   }, []);
 
+  const reorderImages = useCallback((activeId: string, overId: string) => {
+    setImages((current) => reorderPageImages(current, activeId, overId));
+  }, []);
+
   return {
     images,
     addFiles,
     removeImage,
+    reorderImages,
     setCorners,
     setProcessedPreviewUrls: setProcessedPreviewUrlsForImage,
   };

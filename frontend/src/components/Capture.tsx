@@ -7,7 +7,7 @@ import { usePageImages } from "@/state/usePageImages";
 import { usePageProcessing } from "@/state/usePageProcessing";
 import { CornerEditor } from "./CornerEditor";
 import { ImageViewer } from "./ImageViewer";
-import { PreviewGrid } from "./PreviewGrid";
+import { PageReorder } from "./PageReorder";
 import { CameraIcon, FileIcon, TipIcon, UploadCloudIcon } from "./icons";
 
 /** 四隅検出・透視補正のいずれかがまだ確定していない画像は「処理中」として扱う。 */
@@ -17,7 +17,7 @@ function isProcessingPending(image: { corners?: unknown; processedPreviewUrls?: 
 }
 
 export function Capture() {
-  const { images, addFiles, removeImage, setCorners, setProcessedPreviewUrls } = usePageImages();
+  const { images, addFiles, removeImage, reorderImages, setCorners, setProcessedPreviewUrls } = usePageImages();
   const { retryWithCorners } = usePageProcessing(images, { setCorners, setProcessedPreviewUrls });
   const { t } = useLanguage();
   const [isDraggingOver, setIsDraggingOver] = useState(false);
@@ -159,8 +159,9 @@ export function Capture() {
             </div>
           )}
 
-          <PreviewGrid
+          <PageReorder
             images={images}
+            onReorder={reorderImages}
             onRemove={removeImage}
             onAddMore={() => fileInputRef.current?.click()}
             onAdjust={setEditingImageId}

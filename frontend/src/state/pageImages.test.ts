@@ -2,7 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import type { Corners } from "../lib/cv/geometry";
 import {
   addPageImages,
+  flattenPagesForExport,
   removePageImage,
+  reorderPageImages,
   setPageImageCorners,
   setProcessedPreviewUrls,
 } from "./pageImages";
@@ -152,5 +154,124 @@ describe("setProcessedPreviewUrls", () => {
 
     expect(result).toEqual(images);
     expect(revokeObjectUrl).not.toHaveBeenCalled();
+  });
+});
+
+describe("reorderPageImages", () => {
+  const createObjectUrl = vi.fn((file: File) => `blob:${file.name}`);
+
+  it("moves an image forward", () => {
+    const images = addPageImages([], [fakeFile("a.jpg"), fakeFile("b.jpg"), fakeFile("c.jpg")], createObjectUrl);
+
+    const result = reorderPageImages(images, images[0].id, images[2].id);
+
+    expect(result.map((image) => image.file.name)).toEqual(["b.jpg", "c.jpg", "a.jpg"]);
+  });
+
+  it("moves an image backward", () => {
+    const images = addPageImages([], [fakeFile("a.jpg"), fakeFile("b.jpg"), fakeFile("c.jpg")], createObjectUrl);
+
+    const result = reorderPageImages(images, images[2].id, images[0].id);
+
+    expect(result.map((image) => image.file.name)).toEqual(["c.jpg", "a.jpg", "b.jpg"]);
+  });
+
+  it("is a no-op when activeId and overId are the same", () => {
+    const images = addPageImages([], [fakeFile("a.jpg"), fakeFile("b.jpg")], createObjectUrl);
+
+    const result = reorderPageImages(images, images[0].id, images[0].id);
+
+    expect(result).toBe(images);
+  });
+
+  it("is a no-op when activeId does not exist", () => {
+    const images = addPageImages([], [fakeFile("a.jpg"), fakeFile("b.jpg")], createObjectUrl);
+
+    const result = reorderPageImages(images, "missing-id", images[0].id);
+
+    expect(result).toEqual(images);
+  });
+
+  it("is a no-op when overId does not exist", () => {
+    const images = addPageImages([], [fakeFile("a.jpg"), fakeFile("b.jpg")], createObjectUrl);
+
+    const result = reorderPageImages(images, images[0].id, "missing-id");
+
+    expect(result).toEqual(images);
+  });
+
+  it("preserves each image's other fields after moving", () => {
+    const corners: Corners = {
+      topLeft: { x: 1, y: 1 },
+      topRight: { x: 9, y: 1 },
+      bottomRight: { x: 9, y: 9 },
+      bottomLeft: { x: 1, y: 9 },
+    };
+    const images = addPageImages([], [fakeFile("a.jpg"), fakeFile("b.jpg")], createObjectUrl);
+    const withCorners = setPageImageCorners(images, images[0].id, corners);
+    const withProcessed = setProcessedPreviewUrls(withCorners, images[0].id, ["blob:corrected"], vi.fn());
+
+    const result = reorderPageImages(withProcessed, images[0].id, images[1].id);
+
+    const moved = result.find((image) => image.id === images[0].id);
+    expect(moved?.corners).toEqual(corners);
+    expect(moved?.processedPreviewUrls).toEqual(["blob:corrected"]);
+  });
+});
+
+describe("flattenPagesForExport", () => {
+  const createObjectUrl = vi.fn((file: File) => `blob:${file.name}`);
+
+  it("returns one entry per single-page image", () => {
+    const images = addPageImages([], [fakeFile("a.jpg")], createObjectUrl);
+    const processed = setProcessedPreviewUrls(images, images[0].id, ["blob:corrected"], vi.fn());
+
+    const result = flattenPagesForExport(processed);
+
+    expect(result).toEqual([
+      { id: `${images[0].id}:0`, imageId: images[0].id, halfIndex: 0, previewUrl: "blob:corrected" },
+    ]);
+  });
+
+  it("returns two ordered entries for a spread image", () => {
+    const images = addPageImages([], [fakeFile("a.jpg")], createObjectUrl);
+    const processed = setProcessedPreviewUrls(images, images[0].id, ["blob:left", "blob:right"], vi.fn());
+
+    const result = flattenPagesForExport(processed);
+
+    expect(result).toEqual([
+      { id: `${images[0].id}:0`, imageId: images[0].id, halfIndex: 0, previewUrl: "blob:left" },
+      { id: `${images[0].id}:1`, imageId: images[0].id, halfIndex: 1, previewUrl: "blob:right" },
+    ]);
+  });
+
+  it("falls back to previewUrl when not yet processed", () => {
+    const images = addPageImages([], [fakeFile("a.jpg")], createObjectUrl);
+
+    const result = flattenPagesForExport(images);
+
+    expect(result).toEqual([
+      { id: `${images[0].id}:0`, imageId: images[0].id, halfIndex: 0, previewUrl: "blob:a.jpg" },
+    ]);
+  });
+
+  it("falls back to previewUrl when correction failed for all pages", () => {
+    const images = addPageImages([], [fakeFile("a.jpg")], createObjectUrl);
+    const processed = setProcessedPreviewUrls(images, images[0].id, [], vi.fn());
+
+    const result = flattenPagesForExport(processed);
+
+    expect(result).toEqual([
+      { id: `${images[0].id}:0`, imageId: images[0].id, halfIndex: 0, previewUrl: "blob:a.jpg" },
+    ]);
+  });
+
+  it("reflects the images array's order, e.g. after a reorder", () => {
+    const images = addPageImages([], [fakeFile("a.jpg"), fakeFile("b.jpg")], createObjectUrl);
+    const reordered = reorderPageImages(images, images[0].id, images[1].id);
+
+    const result = flattenPagesForExport(reordered);
+
+    expect(result.map((page) => page.previewUrl)).toEqual(["blob:b.jpg", "blob:a.jpg"]);
   });
 });
