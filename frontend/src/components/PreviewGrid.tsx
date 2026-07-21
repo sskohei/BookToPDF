@@ -9,9 +9,10 @@ type PreviewGridProps = {
   onRemove: (id: string) => void;
   onAddMore: () => void;
   onAdjust: (id: string) => void;
+  onView: (id: string) => void;
 };
 
-export function PreviewGrid({ images, onRemove, onAddMore, onAdjust }: PreviewGridProps) {
+export function PreviewGrid({ images, onRemove, onAddMore, onAdjust, onView }: PreviewGridProps) {
   const { t } = useLanguage();
 
   return (
@@ -29,32 +30,39 @@ export function PreviewGrid({ images, onRemove, onAddMore, onAdjust }: PreviewGr
             data-testid="preview-tile"
             className="relative aspect-[3/4] overflow-hidden rounded-xl ring-1 ring-[var(--thumb-ring)]"
           >
-            {correctedUrls && correctedUrls.length > 0 ? (
-              <div className="flex h-full w-full gap-px">
-                {correctedUrls.map((url, halfIndex) => (
-                  <div key={url} className="relative h-full flex-1">
-                    {/* eslint-disable-next-line @next/next/no-img-element -- blob: object URLs aren't supported by next/image */}
-                    <img
-                      src={url}
-                      alt={t("previewGrid.correctedAlt", { index: index + 1 })}
-                      className="h-full w-full object-cover"
-                    />
-                    {correctedUrls.length > 1 && (
-                      <span className="absolute top-1 left-1 rounded bg-black/45 px-1 py-0.5 text-[8px] font-bold text-white">
-                        {t(halfIndex === 0 ? "previewGrid.leftPage" : "previewGrid.rightPage")}
-                      </span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              // eslint-disable-next-line @next/next/no-img-element -- blob: object URLs aren't supported by next/image
-              <img
-                src={image.previewUrl}
-                alt={t("previewGrid.previewAlt", { index: index + 1 })}
-                className="h-full w-full object-cover"
-              />
-            )}
+            <button
+              type="button"
+              onClick={() => onView(image.id)}
+              aria-label={t("previewGrid.viewAria", { index: index + 1 })}
+              className="cursor-zoom-in absolute inset-0 h-full w-full"
+            >
+              {correctedUrls && correctedUrls.length > 0 ? (
+                <div className="flex h-full w-full gap-px">
+                  {correctedUrls.map((url, halfIndex) => (
+                    <div key={url} className="relative h-full flex-1">
+                      {/* eslint-disable-next-line @next/next/no-img-element -- blob: object URLs aren't supported by next/image */}
+                      <img
+                        src={url}
+                        alt={t("previewGrid.correctedAlt", { index: index + 1 })}
+                        className="h-full w-full object-cover"
+                      />
+                      {correctedUrls.length > 1 && (
+                        <span className="absolute top-1 left-1 rounded bg-black/45 px-1 py-0.5 text-[8px] font-bold text-white">
+                          {t(halfIndex === 0 ? "previewGrid.leftPage" : "previewGrid.rightPage")}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                // eslint-disable-next-line @next/next/no-img-element -- blob: object URLs aren't supported by next/image
+                <img
+                  src={image.previewUrl}
+                  alt={t("previewGrid.previewAlt", { index: index + 1 })}
+                  className="h-full w-full object-cover"
+                />
+              )}
+            </button>
 
             {(isDetecting || isCorrecting) && (
               <span

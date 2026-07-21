@@ -6,6 +6,7 @@ import type { Corners } from "@/lib/cv/geometry";
 import { usePageImages } from "@/state/usePageImages";
 import { usePageProcessing } from "@/state/usePageProcessing";
 import { CornerEditor } from "./CornerEditor";
+import { ImageViewer } from "./ImageViewer";
 import { PreviewGrid } from "./PreviewGrid";
 import { CameraIcon, FileIcon, TipIcon, UploadCloudIcon } from "./icons";
 
@@ -22,9 +23,12 @@ export function Capture() {
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [editingImageId, setEditingImageId] = useState<string | null>(null);
   const [isSubmittingCorners, setIsSubmittingCorners] = useState(false);
+  const [viewingImageId, setViewingImageId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const editingImage = images.find((image) => image.id === editingImageId) ?? null;
+  const viewingIndex = images.findIndex((image) => image.id === viewingImageId);
+  const viewingImage = viewingIndex >= 0 ? images[viewingIndex] : null;
 
   const handleConfirmCorners = async (corners: Corners) => {
     if (!editingImageId) return;
@@ -160,6 +164,7 @@ export function Capture() {
             onRemove={removeImage}
             onAddMore={() => fileInputRef.current?.click()}
             onAdjust={setEditingImageId}
+            onView={setViewingImageId}
           />
 
           <button
@@ -178,6 +183,15 @@ export function Capture() {
           isSubmitting={isSubmittingCorners}
           onCancel={() => setEditingImageId(null)}
           onConfirm={handleConfirmCorners}
+        />
+      )}
+
+      {viewingImage && (
+        <ImageViewer
+          key={viewingImage.id}
+          image={viewingImage}
+          index={viewingIndex + 1}
+          onClose={() => setViewingImageId(null)}
         />
       )}
     </div>
