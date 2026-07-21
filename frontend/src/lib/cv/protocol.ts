@@ -21,6 +21,27 @@ export interface CvOperations {
     input: { imageData: ImageData; corners: Corners };
     output: { imageData: ImageData };
   };
+  /**
+   * 透視変換後に残る微小な傾きを補正する。`angleDegrees`は実際に回転補正した角度
+   * (補正不要と判断した場合は0)で、UIには出さないがテスト・デバッグ用に返しておく。
+   */
+  deskew: {
+    input: { imageData: ImageData };
+    output: { imageData: ImageData; angleDegrees: number };
+  };
+  /** CLAHEによるコントラスト補正と明るさの正規化をまとめて行う（スキャンアプリ相当の見た目に近づける）。 */
+  enhanceContrast: {
+    input: { imageData: ImageData };
+    output: { imageData: ImageData };
+  };
+  /**
+   * ページ本体以外の余白（背景）をトリミングする。誤検出時は`trimmed: false`を返し、
+   * 元画像をそのまま返す（本文を欠損させないためのフォールバック）。
+   */
+  trimMargins: {
+    input: { imageData: ImageData };
+    output: { imageData: ImageData; trimmed: boolean };
+  };
 }
 
 export type CvOpName = keyof CvOperations;
