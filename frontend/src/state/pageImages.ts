@@ -76,3 +76,42 @@ export function setProcessedPreviewUrls(
     return { ...image, processedPreviewUrls: urls };
   });
 }
+
+export function reorderPageImages(
+  current: PageImage[],
+  activeId: string,
+  overId: string,
+): PageImage[] {
+  if (activeId === overId) return current;
+  const fromIndex = current.findIndex((image) => image.id === activeId);
+  const toIndex = current.findIndex((image) => image.id === overId);
+  if (fromIndex === -1 || toIndex === -1) return current;
+
+  const next = [...current];
+  const [moved] = next.splice(fromIndex, 1);
+  next.splice(toIndex, 0, moved);
+  return next;
+}
+
+export type FlattenedPage = {
+  id: string;
+  imageId: string;
+  halfIndex: number;
+  previewUrl: string;
+};
+
+/**
+ * `images` の並び順のまま、見開きなら左右2ページに展開した最終的なPDFページ順を返す。
+ * PDF出力(別issue)はこの関数の出力をそのままページ順として使う想定。
+ */
+export function flattenPagesForExport(images: PageImage[]): FlattenedPage[] {
+  return images.flatMap((image) => {
+    const urls = image.processedPreviewUrls?.length ? image.processedPreviewUrls : [image.previewUrl];
+    return urls.map((previewUrl, halfIndex) => ({
+      id: `${image.id}:${halfIndex}`,
+      imageId: image.id,
+      halfIndex,
+      previewUrl,
+    }));
+  });
+}
