@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useRef } from "react";
 import { fileToImageData, imageDataToObjectUrl } from "../lib/cv/browserImage";
 import { createCvWorkerClient, type CvWorkerClient } from "../lib/cv/client";
-import { classifySpread, type Corners } from "../lib/cv/geometry";
-import { splitImageDataInHalf } from "../lib/cv/imageSplit";
+import { classifySpread, deriveHalfCorners, type Corners } from "../lib/cv/geometry";
+import { findGutterX } from "../lib/cv/gutter";
+import { splitImageDataAt } from "../lib/cv/imageSplit";
 import type { PageImage } from "./pageImages";
 
 type Actions = {
@@ -94,29 +95,31 @@ async function runCorrectionPipeline(
     return;
   }
 
-  const [left, right] = splitImageDataInHalf(imageData);
+  const gutterX = findGutterX(imageData, corners);
+  const [left, right] = splitImageDataAt(imageData, gutterX);
+  const [leftFallbackCorners, rightFallbackCorners] = deriveHalfCorners(corners, gutterX);
+
   const [leftDetected, rightDetected] = await Promise.all([
     client.run("detectCorners", { imageData: left }),
     client.run("detectCorners", { imageData: right }),
   ]);
 
-  const urls: string[] = [];
-  if (leftDetected.found) {
-    const corrected = await client.run("perspectiveTransform", {
-      imageData: left,
-      corners: leftDetected.corners,
-    });
-    const finalImage = await applyPostProcessing(client, corrected.imageData);
-    urls.push(await imageDataToObjectUrl(finalImage));
-  }
-  if (rightDetected.found) {
-    const corrected = await client.run("perspectiveTransform", {
-      imageData: right,
-      corners: rightDetected.corners,
-    });
-    const finalImage = await applyPostProcessing(client, corrected.imageData);
-    urls.push(await imageDataToObjectUrl(finalImage));
-  }
+  // 綴じ目側の辺は本が物理的に連続しているため輪郭が存在せず、独立再検出
+  // (detectCorners)は失敗しうる。その場合は外周四隅+綴じ目位置から幾何学的に
+  // 導出した四隅にフォールバックし、その半分をサイレントに欠落させない。
+  const leftCorners = leftDetected.found ? leftDetected.corners : leftFallbackCorners;
+  const rightCorners = rightDetected.found ? rightDetected.corners : rightFallbackCorners;
+
+  const urls = await Promise.all(
+    [
+      { half: left, corners: leftCorners },
+      { half: right, corners: rightCorners },
+    ].map(async ({ half, corners: halfCorners }) => {
+      const corrected = await client.run("perspectiveTransform", { imageData: half, corners: halfCorners });
+      const finalImage = await applyPostProcessing(client, corrected.imageData);
+      return imageDataToObjectUrl(finalImage);
+    }),
+  );
   onUrls(urls);
 }
 

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { splitImageDataInHalf } from "./imageSplit";
+import { splitImageDataAt } from "./imageSplit";
 
 class FakeImageData {
   constructor(
@@ -37,11 +37,11 @@ function pixelsOf(imageData: ImageData): number[][] {
   return pixels;
 }
 
-describe("splitImageDataInHalf", () => {
-  it("splits an even-width image into two equal halves, row by row", () => {
+describe("splitImageDataAt", () => {
+  it("splits at the given x, row by row", () => {
     const imageData = makeImageData(4, 2);
 
-    const [left, right] = splitImageDataInHalf(imageData);
+    const [left, right] = splitImageDataAt(imageData, 2);
 
     expect(left.width).toBe(2);
     expect(right.width).toBe(2);
@@ -62,21 +62,30 @@ describe("splitImageDataInHalf", () => {
     ]);
   });
 
-  it("gives the extra column to the right half for an odd-width image", () => {
+  it("splits at an arbitrary, non-center x", () => {
     const imageData = makeImageData(5, 1);
 
-    const [left, right] = splitImageDataInHalf(imageData);
+    const [left, right] = splitImageDataAt(imageData, 3);
 
-    expect(left.width).toBe(2);
-    expect(right.width).toBe(3);
+    expect(left.width).toBe(3);
+    expect(right.width).toBe(2);
     expect(pixelsOf(left)).toEqual([
       [0, 100, 200, 255],
       [1, 101, 201, 255],
+      [2, 102, 202, 255],
     ]);
     expect(pixelsOf(right)).toEqual([
-      [2, 102, 202, 255],
       [3, 103, 203, 255],
       [4, 104, 204, 255],
     ]);
+  });
+
+  it("clamps the split x so both halves are at least 1px wide", () => {
+    const imageData = makeImageData(4, 1);
+
+    const [left, right] = splitImageDataAt(imageData, 0);
+
+    expect(left.width).toBe(1);
+    expect(right.width).toBe(3);
   });
 });

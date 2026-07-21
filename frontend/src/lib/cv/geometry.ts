@@ -59,3 +59,49 @@ export function classifySpread(corners: Corners): "single" | "spread" {
   const { width, height } = quadSize(corners);
   return width / height >= SPREAD_ASPECT_RATIO_THRESHOLD ? "spread" : "single";
 }
+
+/** 四隅の外接矩形(bounding box)。gutter探索範囲や見開き分割の計算に使う。 */
+export function cornersBoundingBox(corners: Corners): { minX: number; maxX: number; minY: number; maxY: number } {
+  const xs = [corners.topLeft.x, corners.topRight.x, corners.bottomRight.x, corners.bottomLeft.x];
+  const ys = [corners.topLeft.y, corners.topRight.y, corners.bottomRight.y, corners.bottomLeft.y];
+  return { minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) };
+}
+
+/** 線分p0→p1上で、x座標が与えられた値になる点のyを線形補間で求める。p0.x === p1.xの場合はp0.yとp1.yの中間を返す。 */
+function interpolateYAtX(p0: Point, p1: Point, x: number): number {
+  if (p1.x === p0.x) return (p0.y + p1.y) / 2;
+  const t = (x - p0.x) / (p1.x - p0.x);
+  return p0.y + t * (p1.y - p0.y);
+}
+
+/**
+ * 見開き全体の外周四隅と綴じ目のx座標(元画像座標系)から、左右各ページの四隅を幾何学的に導出する。
+ * 上辺(topLeft→topRight)・下辺(bottomLeft→bottomRight)それぞれを直線とみなし、x=gutterXの点を
+ * 線形補間で求めて綴じ目側の頂点とする。呼び出し側は`splitImageDataAt(imageData, gutterX)`で
+ * x=gutterXから左右に分割する想定のため、右半分側の座標はgutterX分だけ引いてローカル座標(0起点)に
+ * 直してある。ページ検出(`detectCorners`)が独立再検出に失敗した場合のフォールバックとして使う。
+ */
+export function deriveHalfCorners(corners: Corners, gutterX: number): [Corners, Corners] {
+  const topGutter: Point = { x: gutterX, y: interpolateYAtX(corners.topLeft, corners.topRight, gutterX) };
+  const bottomGutter: Point = {
+    x: gutterX,
+    y: interpolateYAtX(corners.bottomLeft, corners.bottomRight, gutterX),
+  };
+
+  const left: Corners = {
+    topLeft: corners.topLeft,
+    topRight: topGutter,
+    bottomRight: bottomGutter,
+    bottomLeft: corners.bottomLeft,
+  };
+
+  const shift = (p: Point): Point => ({ x: p.x - gutterX, y: p.y });
+  const right: Corners = {
+    topLeft: shift(topGutter),
+    topRight: shift(corners.topRight),
+    bottomRight: shift(corners.bottomRight),
+    bottomLeft: shift(bottomGutter),
+  };
+
+  return [left, right];
+}
