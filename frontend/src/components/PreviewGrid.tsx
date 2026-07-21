@@ -2,15 +2,16 @@
 
 import { useLanguage } from "@/i18n/LanguageProvider";
 import type { PageImage } from "@/state/pageImages";
-import { CloseIcon, PlusIcon } from "./icons";
+import { AdjustIcon, CloseIcon, PlusIcon } from "./icons";
 
 type PreviewGridProps = {
   images: PageImage[];
   onRemove: (id: string) => void;
   onAddMore: () => void;
+  onAdjust: (id: string) => void;
 };
 
-export function PreviewGrid({ images, onRemove, onAddMore }: PreviewGridProps) {
+export function PreviewGrid({ images, onRemove, onAddMore, onAdjust }: PreviewGridProps) {
   const { t } = useLanguage();
 
   return (
@@ -83,6 +84,16 @@ export function PreviewGrid({ images, onRemove, onAddMore }: PreviewGridProps) {
             >
               <CloseIcon />
             </button>
+            {!isDetecting && (
+              <button
+                type="button"
+                onClick={() => onAdjust(image.id)}
+                aria-label={t("previewGrid.adjustAria", { index: index + 1 })}
+                className="cursor-pointer absolute bottom-1 right-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/50 text-white"
+              >
+                <AdjustIcon />
+              </button>
+            )}
           </div>
         );
       })}

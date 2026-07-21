@@ -19,6 +19,11 @@
   --add-border: #fdba74;
   --track: #ffedd5;
   --thumb-ring: rgba(0, 0, 0, 0.05);
+  --overlay-backdrop: rgba(15, 12, 9, 0.6);
+  --corner-quad-line: rgba(249, 115, 22, 0.9);
+  --corner-quad-fill: rgba(249, 115, 22, 0.12);
+  --corner-handle-bg: #f97316;
+  --corner-handle-border: #ffffff;
 }
 
 @theme inline {
@@ -46,6 +51,11 @@
   --add-border: rgba(251, 146, 60, 0.5);
   --track: #1e293b;
   --thumb-ring: rgba(255, 255, 255, 0.1);
+  --overlay-backdrop: rgba(0, 0, 0, 0.75);
+  --corner-quad-line: rgba(251, 146, 60, 0.9);
+  --corner-quad-fill: rgba(251, 146, 60, 0.16);
+  --corner-handle-bg: #fb923c;
+  --corner-handle-border: #0b1220;
 }
 
 body {
