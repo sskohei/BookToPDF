@@ -28,6 +28,13 @@ export interface CvException {
   readonly msg: string;
 }
 
+/** `minAreaRect` が返す回転外接矩形。`RotatedRect.points` に渡して4頂点を取得する。 */
+export interface CvRotatedRect {
+  readonly center: { readonly x: number; readonly y: number };
+  readonly size: { readonly width: number; readonly height: number };
+  readonly angle: number;
+}
+
 export interface CvModule {
   Mat: new () => CvMat;
   MatVector: new () => CvMatVector;
@@ -51,9 +58,25 @@ export interface CvModule {
   getPerspectiveTransform(src: CvMat, dst: CvMat): CvMat;
   warpPerspective(src: CvMat, dst: CvMat, transform: CvMat, dsize: CvSize): void;
   exceptionFromPtr(ptr: unknown): CvException;
+  /** 低コントラスト画像でCannyエッジを出やすくするためのヒストグラム平坦化。 */
+  equalizeHist(src: CvMat, dst: CvMat): void;
+  /** 影・照明ムラで途切れたエッジをつなぐモルフォロジー演算。 */
+  morphologyEx(src: CvMat, dst: CvMat, op: number, kernel: CvMat): void;
+  getStructuringElement(shape: number, ksize: CvSize): CvMat;
+  minAreaRect(contour: CvMat): CvRotatedRect;
+  /**
+   * `RotatedRect`は静的名前空間として公開されており、`points`はその配下のヘルパー。
+   * `Mat`ではなく素のPoint配列(長さ4)を返す(OpenCV.js公式サンプルで`vertices[i]`と
+   * 直接インデックスアクセスされている挙動に合わせた型)。
+   */
+  RotatedRect: {
+    points(rect: CvRotatedRect): Array<{ x: number; y: number }>;
+  };
   readonly COLOR_RGBA2GRAY: number;
   readonly COLOR_GRAY2RGBA: number;
   readonly RETR_EXTERNAL: number;
   readonly CHAIN_APPROX_SIMPLE: number;
   readonly CV_32FC2: number;
+  readonly MORPH_CLOSE: number;
+  readonly MORPH_RECT: number;
 }

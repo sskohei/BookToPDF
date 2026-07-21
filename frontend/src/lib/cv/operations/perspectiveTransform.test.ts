@@ -71,11 +71,18 @@ function buildCv() {
     getPerspectiveTransform: vi.fn(() => transform),
     warpPerspective: vi.fn(),
     exceptionFromPtr: vi.fn(() => ({ msg: "unused" })),
+    equalizeHist: vi.fn(),
+    morphologyEx: vi.fn(),
+    getStructuringElement: vi.fn() as unknown as CvModule["getStructuringElement"],
+    minAreaRect: vi.fn() as unknown as CvModule["minAreaRect"],
+    RotatedRect: { points: vi.fn(() => []) },
     COLOR_RGBA2GRAY: 11,
     COLOR_GRAY2RGBA: 12,
     RETR_EXTERNAL: 21,
     CHAIN_APPROX_SIMPLE: 22,
     CV_32FC2: 13,
+    MORPH_CLOSE: 31,
+    MORPH_RECT: 32,
   };
 
   return { cv, src, srcPoints, dstPoints, transform, warped, matFromArrayCalls };
