@@ -1,5 +1,6 @@
 import { runDetectCorners } from "../lib/cv/operations/detectCorners";
 import { runGrayscale } from "../lib/cv/operations/grayscale";
+import { runPerspectiveTransform } from "../lib/cv/operations/perspectiveTransform";
 import type { CvModule } from "../lib/cv/opencv-types";
 import type { CvJobRequest, CvJobResult, CvWorkerOutboundMessage } from "../lib/cv/protocol";
 import { loadOpenCv } from "./loadOpenCv";
@@ -54,6 +55,14 @@ function runOperation(cv: CvModule, request: CvJobRequest): CvJobResult {
         op: "detectCorners",
         ok: true,
         output: runDetectCorners(cv, request.input),
+      };
+    case "perspectiveTransform":
+      return {
+        kind: "job-result",
+        id: request.id,
+        op: "perspectiveTransform",
+        ok: true,
+        output: runPerspectiveTransform(cv, request.input),
       };
     default: {
       const exhaustiveCheck: never = request;
