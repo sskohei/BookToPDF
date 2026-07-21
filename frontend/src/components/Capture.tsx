@@ -2,8 +2,10 @@
 
 import { useRef, useState } from "react";
 import { useLanguage } from "@/i18n/LanguageProvider";
+import type { Corners } from "@/lib/cv/geometry";
 import { usePageImages } from "@/state/usePageImages";
 import { usePageProcessing } from "@/state/usePageProcessing";
+import { CornerEditor } from "./CornerEditor";
 import { PreviewGrid } from "./PreviewGrid";
 import { CameraIcon, FileIcon, TipIcon, UploadCloudIcon } from "./icons";
 
@@ -15,11 +17,22 @@ function isProcessingPending(image: { corners?: unknown; processedPreviewUrls?: 
 
 export function Capture() {
   const { images, addFiles, removeImage, setCorners, setProcessedPreviewUrls } = usePageImages();
-  usePageProcessing(images, { setCorners, setProcessedPreviewUrls });
+  const { retryWithCorners } = usePageProcessing(images, { setCorners, setProcessedPreviewUrls });
   const { t } = useLanguage();
   const [isDraggingOver, setIsDraggingOver] = useState(false);
+  const [editingImageId, setEditingImageId] = useState<string | null>(null);
+  const [isSubmittingCorners, setIsSubmittingCorners] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  const editingImage = images.find((image) => image.id === editingImageId) ?? null;
+
+  const handleConfirmCorners = async (corners: Corners) => {
+    if (!editingImageId) return;
+    setIsSubmittingCorners(true);
+    await retryWithCorners(editingImageId, corners);
+    setIsSubmittingCorners(false);
+    setEditingImageId(null);
+  };
 
   const pendingCount = images.filter(isProcessingPending).length;
   const uploadProgress =
@@ -146,6 +159,7 @@ export function Capture() {
             images={images}
             onRemove={removeImage}
             onAddMore={() => fileInputRef.current?.click()}
+            onAdjust={setEditingImageId}
           />
 
           <button
@@ -155,6 +169,16 @@ export function Capture() {
             {t("capture.uploadButton", { count: images.length })}
           </button>
         </>
+      )}
+
+      {editingImage && (
+        <CornerEditor
+          key={editingImage.id}
+          image={editingImage}
+          isSubmitting={isSubmittingCorners}
+          onCancel={() => setEditingImageId(null)}
+          onConfirm={handleConfirmCorners}
+        />
       )}
     </div>
   );
