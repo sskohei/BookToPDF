@@ -10,6 +10,13 @@ export interface CvMat {
   readonly data32S: Int32Array;
   readonly cols: number;
   readonly rows: number;
+  /**
+   * ROI(部分行列)のビューを返す。`.data`は元Matのストライドをそのまま参照するため
+   * 1行目以外は正しくパックされない。ピクセルを読む前に必ず`.clone()`すること
+   * (`trimMargins.ts`のコメント参照)。
+   */
+  roi(rect: CvRect): CvMat;
+  clone(): CvMat;
   delete(): void;
 }
 
@@ -33,6 +40,30 @@ export interface CvRotatedRect {
   readonly center: { readonly x: number; readonly y: number };
   readonly size: { readonly width: number; readonly height: number };
   readonly angle: number;
+}
+
+export interface CvPoint {
+  readonly x: number;
+  readonly y: number;
+}
+
+export interface CvRect {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+}
+
+/** `minMaxLoc` の戻り値。位置情報も持つが、このプロジェクトでは値のみ使う。 */
+export interface CvMinMaxLocResult {
+  readonly minVal: number;
+  readonly maxVal: number;
+}
+
+/** `new cv.CLAHE(clipLimit, tileGridSize)` で得られるインスタンス。他のcvオブジェクト同様に`delete()`が必要。 */
+export interface CvClahe {
+  apply(src: CvMat, dst: CvMat): void;
+  delete(): void;
 }
 
 export interface CvModule {
@@ -72,11 +103,49 @@ export interface CvModule {
   RotatedRect: {
     points(rect: CvRotatedRect): Array<{ x: number; y: number }>;
   };
+  Point: new (x: number, y: number) => CvPoint;
+  Rect: new (x: number, y: number, width: number, height: number) => CvRect;
+  CLAHE: new (clipLimit?: number, tileGridSize?: CvSize) => CvClahe;
+  /** 確率的Hough変換。`lines.data32S`に`[x1,y1,x2,y2]`が1行ずつ入る。 */
+  HoughLinesP(
+    image: CvMat,
+    lines: CvMat,
+    rho: number,
+    theta: number,
+    threshold: number,
+    minLineLength: number,
+    maxLineGap: number,
+  ): void;
+  getRotationMatrix2D(center: CvPoint, angleDegrees: number, scale: number): CvMat;
+  warpAffine(
+    src: CvMat,
+    dst: CvMat,
+    m: CvMat,
+    dsize: CvSize,
+    flags: number,
+    borderMode: number,
+    borderValue: number[],
+  ): void;
+  threshold(src: CvMat, dst: CvMat, thresh: number, maxval: number, type: number): number;
+  boundingRect(mat: CvMat): CvRect;
+  minMaxLoc(mat: CvMat): CvMinMaxLocResult;
+  convertScaleAbs(src: CvMat, dst: CvMat, alpha: number, beta: number): void;
+  split(src: CvMat, mv: CvMatVector): void;
+  merge(mv: CvMatVector, dst: CvMat): void;
   readonly COLOR_RGBA2GRAY: number;
   readonly COLOR_GRAY2RGBA: number;
+  readonly COLOR_RGBA2RGB: number;
+  readonly COLOR_RGB2RGBA: number;
+  readonly COLOR_RGB2Lab: number;
+  readonly COLOR_Lab2RGB: number;
   readonly RETR_EXTERNAL: number;
   readonly CHAIN_APPROX_SIMPLE: number;
   readonly CV_32FC2: number;
   readonly MORPH_CLOSE: number;
   readonly MORPH_RECT: number;
+  readonly THRESH_BINARY: number;
+  readonly THRESH_BINARY_INV: number;
+  readonly THRESH_OTSU: number;
+  readonly BORDER_CONSTANT: number;
+  readonly INTER_LINEAR: number;
 }

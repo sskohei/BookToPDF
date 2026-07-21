@@ -62,8 +62,23 @@ export function usePageProcessing(images: PageImage[], { setCorners, setProcesse
 }
 
 /**
- * 見開き/単ページ判定以降(必要なら分割・各半分の再検出・透視補正・表示用URL化)を行う。
- * 自動検出パス(`processImage`)と、ユーザーが手動で確定した四隅からの再実行パス
+ * 透視補正後の画像に、スキャンアプリ相当の見た目に近づけるための後処理
+ * (傾き補正→CLAHEコントラスト/明るさ補正→余白トリミング、architecture.md step 7-8)を
+ * この順で適用する。この順序は、deskewが透視変換後に残る微小な傾きのみを対象とすること、
+ * enhanceContrastは傾きが直った状態でCLAHEのタイル境界を計算した方が精度が良いこと、
+ * trimMarginsはdeskewの回転が作る四隅の白いウェッジを最後に取り除くのが最も安定すること、
+ * による。
+ */
+async function applyPostProcessing(client: CvWorkerClient, imageData: ImageData): Promise<ImageData> {
+  const deskewed = await client.run("deskew", { imageData });
+  const contrasted = await client.run("enhanceContrast", { imageData: deskewed.imageData });
+  const trimmed = await client.run("trimMargins", { imageData: contrasted.imageData });
+  return trimmed.imageData;
+}
+
+/**
+ * 見開き/単ページ判定以降(必要なら分割・各半分の再検出・透視補正・画質後処理・表示用URL化)を
+ * 行う。自動検出パス(`processImage`)と、ユーザーが手動で確定した四隅からの再実行パス
  * (`retryWithCornersImpl`)の両方から呼ばれる共通処理。
  */
 async function runCorrectionPipeline(
@@ -74,7 +89,8 @@ async function runCorrectionPipeline(
 ): Promise<void> {
   if (classifySpread(corners) === "single") {
     const corrected = await client.run("perspectiveTransform", { imageData, corners });
-    onUrls([await imageDataToObjectUrl(corrected.imageData)]);
+    const finalImage = await applyPostProcessing(client, corrected.imageData);
+    onUrls([await imageDataToObjectUrl(finalImage)]);
     return;
   }
 
@@ -90,14 +106,16 @@ async function runCorrectionPipeline(
       imageData: left,
       corners: leftDetected.corners,
     });
-    urls.push(await imageDataToObjectUrl(corrected.imageData));
+    const finalImage = await applyPostProcessing(client, corrected.imageData);
+    urls.push(await imageDataToObjectUrl(finalImage));
   }
   if (rightDetected.found) {
     const corrected = await client.run("perspectiveTransform", {
       imageData: right,
       corners: rightDetected.corners,
     });
-    urls.push(await imageDataToObjectUrl(corrected.imageData));
+    const finalImage = await applyPostProcessing(client, corrected.imageData);
+    urls.push(await imageDataToObjectUrl(finalImage));
   }
   onUrls(urls);
 }

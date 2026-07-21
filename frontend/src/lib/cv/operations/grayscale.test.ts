@@ -17,6 +17,8 @@ function fakeMat(cols: number, rows: number): CvMat & { deleted: boolean } {
     cols,
     rows,
     deleted: false,
+    roi: vi.fn(() => mat) as unknown as CvMat["roi"],
+    clone: vi.fn(() => mat) as unknown as CvMat["clone"],
     delete() {
       mat.deleted = true;
     },
@@ -32,6 +34,9 @@ const unusedCvMembers: Pick<
   CvModule,
   | "MatVector"
   | "Size"
+  | "Point"
+  | "Rect"
+  | "CLAHE"
   | "GaussianBlur"
   | "Canny"
   | "findContours"
@@ -46,14 +51,35 @@ const unusedCvMembers: Pick<
   | "getStructuringElement"
   | "minAreaRect"
   | "RotatedRect"
+  | "HoughLinesP"
+  | "getRotationMatrix2D"
+  | "warpAffine"
+  | "threshold"
+  | "boundingRect"
+  | "minMaxLoc"
+  | "convertScaleAbs"
+  | "split"
+  | "merge"
   | "RETR_EXTERNAL"
   | "CHAIN_APPROX_SIMPLE"
   | "CV_32FC2"
   | "MORPH_CLOSE"
   | "MORPH_RECT"
+  | "COLOR_RGBA2RGB"
+  | "COLOR_RGB2RGBA"
+  | "COLOR_RGB2Lab"
+  | "COLOR_Lab2RGB"
+  | "THRESH_BINARY"
+  | "THRESH_BINARY_INV"
+  | "THRESH_OTSU"
+  | "BORDER_CONSTANT"
+  | "INTER_LINEAR"
 > = {
   MatVector: vi.fn() as unknown as CvModule["MatVector"],
   Size: vi.fn() as unknown as CvModule["Size"],
+  Point: vi.fn() as unknown as CvModule["Point"],
+  Rect: vi.fn() as unknown as CvModule["Rect"],
+  CLAHE: vi.fn() as unknown as CvModule["CLAHE"],
   GaussianBlur: vi.fn(),
   Canny: vi.fn(),
   findContours: vi.fn(),
@@ -68,11 +94,29 @@ const unusedCvMembers: Pick<
   getStructuringElement: vi.fn() as unknown as CvModule["getStructuringElement"],
   minAreaRect: vi.fn() as unknown as CvModule["minAreaRect"],
   RotatedRect: { points: vi.fn(() => []) },
+  HoughLinesP: vi.fn(),
+  getRotationMatrix2D: vi.fn() as unknown as CvModule["getRotationMatrix2D"],
+  warpAffine: vi.fn(),
+  threshold: vi.fn(),
+  boundingRect: vi.fn() as unknown as CvModule["boundingRect"],
+  minMaxLoc: vi.fn() as unknown as CvModule["minMaxLoc"],
+  convertScaleAbs: vi.fn(),
+  split: vi.fn(),
+  merge: vi.fn(),
   RETR_EXTERNAL: 0,
   CHAIN_APPROX_SIMPLE: 0,
   CV_32FC2: 0,
   MORPH_CLOSE: 0,
   MORPH_RECT: 0,
+  COLOR_RGBA2RGB: 0,
+  COLOR_RGB2RGBA: 0,
+  COLOR_RGB2Lab: 0,
+  COLOR_Lab2RGB: 0,
+  THRESH_BINARY: 0,
+  THRESH_BINARY_INV: 0,
+  THRESH_OTSU: 0,
+  BORDER_CONSTANT: 0,
+  INTER_LINEAR: 0,
 };
 
 beforeEach(() => {

@@ -1,6 +1,9 @@
+import { runDeskew } from "../lib/cv/operations/deskew";
 import { runDetectCorners } from "../lib/cv/operations/detectCorners";
+import { runEnhanceContrast } from "../lib/cv/operations/enhanceContrast";
 import { runGrayscale } from "../lib/cv/operations/grayscale";
 import { runPerspectiveTransform } from "../lib/cv/operations/perspectiveTransform";
+import { runTrimMargins } from "../lib/cv/operations/trimMargins";
 import type { CvModule } from "../lib/cv/opencv-types";
 import type { CvJobRequest, CvJobResult, CvWorkerOutboundMessage } from "../lib/cv/protocol";
 import { loadOpenCv } from "./loadOpenCv";
@@ -63,6 +66,30 @@ function runOperation(cv: CvModule, request: CvJobRequest): CvJobResult {
         op: "perspectiveTransform",
         ok: true,
         output: runPerspectiveTransform(cv, request.input),
+      };
+    case "deskew":
+      return {
+        kind: "job-result",
+        id: request.id,
+        op: "deskew",
+        ok: true,
+        output: runDeskew(cv, request.input),
+      };
+    case "enhanceContrast":
+      return {
+        kind: "job-result",
+        id: request.id,
+        op: "enhanceContrast",
+        ok: true,
+        output: runEnhanceContrast(cv, request.input),
+      };
+    case "trimMargins":
+      return {
+        kind: "job-result",
+        id: request.id,
+        op: "trimMargins",
+        ok: true,
+        output: runTrimMargins(cv, request.input),
       };
     default: {
       const exhaustiveCheck: never = request;
