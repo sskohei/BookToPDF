@@ -64,14 +64,23 @@ afterEach(() => {
  * 異なる近似結果を返せる。呼び出し回数が配列長を超えたら最後の要素を使い続ける。
  * 単一の`Point[]`を渡した場合は、全ての呼び出しで同じ結果を返す。
  */
-type ContourSpec = { points: Point[] | Point[][]; area: number };
+type ContourSpec = { points: Point[] | Point[][]; area: number; denseContour?: Point[] };
 
 function approxSequence(spec: ContourSpec): Point[][] {
   return Array.isArray(spec.points[0]) ? (spec.points as Point[][]) : [spec.points as Point[]];
 }
 
 function makeContourPass(specs: ContourSpec[]) {
-  const contourMats = specs.map(() => fakeMat());
+  const contourMats = specs.map((spec) => {
+    const mat = fakeMat();
+    // 実際のOpenCVでは`contour`(approxPolyDP前の密な輪郭)自体もCV_32SC2のMatだが、
+    // ほとんどのテストは頂点精密化(refineQuadCorners)を素通りさせたいので、`denseContour`を
+    // 指定した場合のみ`data32S`を埋める(未指定なら空のままで、精密化は全頂点フォールバックになる)。
+    if (spec.denseContour) {
+      mat.data32S = pointsToData32S(spec.denseContour);
+    }
+    return mat;
+  });
   const vector: CvMatVector & { deleted: boolean } = {
     deleted: false,
     size: () => contourMats.length,
@@ -173,6 +182,7 @@ function buildCv(passes: ContourSpec[][], options: { blurredData?: Uint8Array } 
     matFromArray: vi.fn() as unknown as CvModule["matFromArray"],
     getPerspectiveTransform: vi.fn() as unknown as CvModule["getPerspectiveTransform"],
     warpPerspective: vi.fn(),
+    remap: vi.fn(),
     exceptionFromPtr: vi.fn(() => ({ msg: "unused" })),
     equalizeHist,
     morphologyEx,
@@ -200,6 +210,7 @@ function buildCv(passes: ContourSpec[][], options: { blurredData?: Uint8Array } 
     RETR_EXTERNAL: 21,
     CHAIN_APPROX_SIMPLE: 22,
     CV_32FC2: 0,
+    CV_32FC1: 0,
     MORPH_CLOSE: 31,
     MORPH_OPEN: 30,
     MORPH_RECT: 32,
@@ -643,6 +654,132 @@ describe("runDetectCorners", () => {
         cv.MORPH_CLOSE,
         closeKernel,
       );
+    });
+  });
+});
+
+describe("頂点の精密化(輪郭辺への直線フィット交点)とedgeCurvesの受け渡し", () => {
+  function segment(a: Point, b: Point, count: number): Point[] {
+    const points: Point[] = [];
+    for (let i = 0; i <= count; i++) {
+      const t = i / count;
+      points.push({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
+    }
+    return points;
+  }
+
+  it("refines noisy approxPolyDP vertices using the dense pre-approximation contour", () => {
+    const trueTopLeft: Point = { x: 10, y: 10 };
+    const trueTopRight: Point = { x: 90, y: 10 };
+    const trueBottomRight: Point = { x: 90, y: 90 };
+    const trueBottomLeft: Point = { x: 10, y: 90 };
+
+    const top = segment(trueTopLeft, trueTopRight, 16);
+    const right = segment(trueTopRight, trueBottomRight, 16);
+    const bottom = segment(trueBottomRight, trueBottomLeft, 16);
+    const left = segment(trueBottomLeft, trueTopLeft, 16);
+    const denseContour = [...top.slice(0, -1), ...right.slice(0, -1), ...bottom.slice(0, -1), ...left.slice(0, -1)];
+
+    // approxPolyDPが返す生の4頂点は、本来の角から数px程度ずれているものとする
+    // (輪郭近似のノイズ・角の丸まりをシミュレート)。
+    const rawTopLeft: Point = { x: 13, y: 7 };
+    const rawTopRight: Point = { x: 87, y: 13 };
+    const rawBottomRight: Point = { x: 93, y: 87 };
+    const rawBottomLeft: Point = { x: 7, y: 93 };
+
+    const { cv } = buildCv([
+      [
+        {
+          points: [rawTopLeft, rawTopRight, rawBottomRight, rawBottomLeft],
+          area: 6400,
+          denseContour,
+        },
+      ],
+    ]);
+
+    const result = runDetectCorners(cv, makeInput(100, 100));
+
+    expect(result.found).toBe(true);
+    if (!result.found) return;
+
+    const closeToCorner = (actual: Point, expected: Point) => {
+      expect(actual.x).toBeCloseTo(expected.x, 3);
+      expect(actual.y).toBeCloseTo(expected.y, 3);
+    };
+    closeToCorner(result.corners.topLeft, trueTopLeft);
+    closeToCorner(result.corners.topRight, trueTopRight);
+    closeToCorner(result.corners.bottomRight, trueBottomRight);
+    closeToCorner(result.corners.bottomLeft, trueBottomLeft);
+
+    // 精密化された頂点は生のapproxPolyDP頂点とは異なる(=refineQuadCornersが実際に働いている)。
+    expect(result.corners.topLeft).not.toEqual(rawTopLeft);
+
+    // edgeCurvesの端点は、生の(ノイズを持つ)approxPolyDP頂点に対する密輪郭上の最近傍点なので
+    // 真の角そのものとは一致しないが、サンプリング間隔程度には近いはずである。
+    const dist = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
+    expect(result.edgeCurves).toBeDefined();
+    expect(dist(result.edgeCurves!.top[0], trueTopLeft)).toBeLessThan(6);
+    expect(dist(result.edgeCurves!.top[result.edgeCurves!.top.length - 1], trueTopRight)).toBeLessThan(6);
+    expect(dist(result.edgeCurves!.bottom[0], trueBottomLeft)).toBeLessThan(6);
+    expect(
+      dist(result.edgeCurves!.bottom[result.edgeCurves!.bottom.length - 1], trueBottomRight),
+    ).toBeLessThan(6);
+  });
+
+  it("falls back to the raw vertex when refinement would move a corner far away (real-photo regression guard)", () => {
+    // 実写真での回帰: ページ外周辺がわずかに傾いているだけでも、辺全体にフィットした直線の
+    // 交点を頂点まで外挿すると、素朴な生の頂点検出から60px超離れうる(木目調の机・手など
+    // 背景ノイズを含む実写真で、左下頂点が大きく暴走する事例が実際に確認された)。
+    // このズレはCORNER_MAX_DISPLACEMENT_RATIO/MINの上限を超えるため、生の頂点に留まるべき。
+    const topLeft: Point = { x: 0, y: 0 };
+    const topRight: Point = { x: 2800, y: 0 };
+    const bottomRight: Point = { x: 2800, y: 1800 };
+    const trueBottomLeftOnTiltedEdge: Point = { x: 0, y: 1860 };
+    const rawBottomLeft: Point = { x: 5, y: 1798 };
+
+    const top = segment(topLeft, topRight, 50);
+    const right = segment(topRight, bottomRight, 30);
+    const bottom = segment(bottomRight, trueBottomLeftOnTiltedEdge, 50);
+    const left = segment(trueBottomLeftOnTiltedEdge, topLeft, 30);
+    const denseContour = [
+      ...top.slice(0, -1),
+      ...right.slice(0, -1),
+      ...bottom.slice(0, -1),
+      ...left.slice(0, -1),
+    ];
+
+    const { cv } = buildCv([
+      [
+        {
+          points: [topLeft, topRight, bottomRight, rawBottomLeft],
+          area: 6_000_000,
+          denseContour,
+        },
+      ],
+    ]);
+
+    const result = runDetectCorners(cv, makeInput(3000, 2000));
+
+    expect(result.found).toBe(true);
+    if (!result.found) return;
+    expect(result.corners.bottomLeft).toEqual(rawBottomLeft);
+  });
+
+  it("falls back to the raw approxPolyDP vertices and omits edgeCurves when no dense contour data is available", () => {
+    // 既存のテストと同様、denseContourを与えない場合(このテストスイートの他のケース全て)は
+    // 精密化がフォールバックし、従来通り生の頂点がそのまま返る。
+    const topLeft: Point = { x: 10, y: 10 };
+    const topRight: Point = { x: 90, y: 10 };
+    const bottomRight: Point = { x: 90, y: 90 };
+    const bottomLeft: Point = { x: 10, y: 90 };
+
+    const { cv } = buildCv([[{ points: [topLeft, topRight, bottomRight, bottomLeft], area: 6400 }]]);
+
+    const result = runDetectCorners(cv, makeInput(100, 100));
+
+    expect(result).toEqual({
+      found: true,
+      corners: { topLeft, topRight, bottomRight, bottomLeft },
     });
   });
 });

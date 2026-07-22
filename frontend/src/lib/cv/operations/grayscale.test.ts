@@ -46,6 +46,7 @@ const unusedCvMembers: Pick<
   | "matFromArray"
   | "getPerspectiveTransform"
   | "warpPerspective"
+  | "remap"
   | "equalizeHist"
   | "morphologyEx"
   | "getStructuringElement"
@@ -63,6 +64,7 @@ const unusedCvMembers: Pick<
   | "RETR_EXTERNAL"
   | "CHAIN_APPROX_SIMPLE"
   | "CV_32FC2"
+  | "CV_32FC1"
   | "MORPH_CLOSE"
   | "MORPH_OPEN"
   | "MORPH_RECT"
@@ -90,6 +92,7 @@ const unusedCvMembers: Pick<
   matFromArray: vi.fn() as unknown as CvModule["matFromArray"],
   getPerspectiveTransform: vi.fn() as unknown as CvModule["getPerspectiveTransform"],
   warpPerspective: vi.fn(),
+  remap: vi.fn(),
   equalizeHist: vi.fn(),
   morphologyEx: vi.fn(),
   getStructuringElement: vi.fn() as unknown as CvModule["getStructuringElement"],
@@ -107,6 +110,7 @@ const unusedCvMembers: Pick<
   RETR_EXTERNAL: 0,
   CHAIN_APPROX_SIMPLE: 0,
   CV_32FC2: 0,
+  CV_32FC1: 0,
   MORPH_CLOSE: 0,
   MORPH_OPEN: 0,
   MORPH_RECT: 0,

@@ -1,4 +1,4 @@
-import { cornersBoundingBox, type Corners, type GutterLine } from "./geometry";
+import { cornersBoundingBox, type Corners, type GutterLine, type Point } from "./geometry";
 
 /** 探索の垂直範囲を、bounding boxの上下何割ずつ除いた中央帯にするか(見開き上下の湾曲・指の写り込みを避ける)。 */
 const VERTICAL_INSET_RATIO = 0.2;
@@ -35,10 +35,40 @@ const LINE_AGREEMENT_TOLERANCE_RATIO = 0.15;
  * いう条件だけなら綴じ目の影と区別がつかないが、幅はわずか数pxしかない)を踏まえて選定した値。
  * 深さ・両側回復だけでは印刷された罫線を綴じ目の影と誤認してしまうため、幅で区別する。 */
 const MIN_VALLEY_WIDTH_RATIO = 0.015;
+/**
+ * 輝度谷検出の結果(`topX`/`bottomX`)が、外周四隅から幾何学的に予測される綴じ目位置
+ * (`predictGeometricGutterX`、左右ページはほぼ同じ幅という前提)からbounding box幅に対して
+ * この比率を超えて離れていたら、印刷物・机の質感・指の写り込み等による別の暗部を誤って
+ * 綴じ目と検出したとみなし、幾何学的な予測にフォールバックする(実写真での検証で、輝度谷検出が
+ * 真の綴じ目から大きく外れた位置を検出し、見開き分割時に隣ページを巻き込んだ回帰への対策)。
+ * 実際の本は左右ページの幅が多少非対称なこともあるため、ある程度のマージンを持たせている。
+ */
+const GEOMETRIC_ANCHOR_TOLERANCE_RATIO = 0.12;
 
 function luminance(data: Uint8ClampedArray, pixelIndex: number): number {
   const offset = pixelIndex * 4;
   return 0.299 * data[offset] + 0.587 * data[offset + 1] + 0.114 * data[offset + 2];
+}
+
+/** 線分p0→p1上で、y座標が与えられた値になる点のxを線形補間で求める。p0.y === p1.yの場合は
+ * p0.xとp1.xの中間を返す(`geometry.ts`の`interpolateYAtX`のx/y入れ替え版)。 */
+function interpolateXAtY(p0: Point, p1: Point, y: number): number {
+  if (p1.y === p0.y) return (p0.x + p1.x) / 2;
+  const t = (y - p0.y) / (p1.y - p0.y);
+  return p0.x + t * (p1.x - p0.x);
+}
+
+/**
+ * 外周四隅の左辺(topLeft→bottomLeft)・右辺(topRight→bottomRight)をy座標で線形補間し、
+ * その中点を綴じ目のx座標として予測する。左右ページの幅はほぼ等しいという前提(実際の本では
+ * ほぼ常に成り立つ)に基づく。輝度谷検出に頼らない、四隅検出の精度にのみ依存する独立した
+ * 推定であるため、輝度谷検出が失敗/誤検出した場合のフォールバック、および輝度谷検出の結果が
+ * 妥当かどうかの裏取りに使う。
+ */
+function predictGeometricGutterX(corners: Corners, y: number): number {
+  const leftX = interpolateXAtY(corners.topLeft, corners.bottomLeft, y);
+  const rightX = interpolateXAtY(corners.topRight, corners.bottomRight, y);
+  return (leftX + rightX) / 2;
 }
 
 /**
@@ -49,8 +79,12 @@ function luminance(data: Uint8ClampedArray, pixelIndex: number): number {
  * 続く段差(谷ではない)を綴じ目と誤認しないようにする。最上段・最下段の有効バンド候補を結ぶ直線に
  * 中間バンドの候補が乗っているかを確認することで、手持ち撮影による回転で綴じ目が斜めになる場合を
  * 正しく直線として捉えつつ、無関係な物体が紛れ込んだ場合(直線に乗らない)は除外する。谷が明確でない、
- * またはバンド間で一貫した直線が引けない場合はbounding boxの水平中央にフォールバックする
- * (画像全体の中央ではなく検出済み四隅基準にする時点で、本が写真の中央にない場合の問題は解消される)。
+ * またはバンド間で一貫した直線が引けない場合は、外周四隅から幾何学的に予測した位置に
+ * フォールバックする(左右ページはほぼ同じ幅という前提。画像全体の中央ではなく検出済み
+ * 四隅基準にする時点で、本が写真の中央にない場合の問題は解消される)。輝度谷検出が
+ * (バンドの一致自体は取れてしまうが)この幾何学的な予測から大きく外れた位置を検出した
+ * 場合も、印刷物・机の質感等の別の暗部を誤検出したとみなし同様にフォールバックする
+ * (`GEOMETRIC_ANCHOR_TOLERANCE_RATIO`参照、実写真での検証で確認された回帰への対策)。
  */
 export function findGutterLine(imageData: ImageData, corners: Corners): GutterLine {
   const { width, height, data } = imageData;
@@ -63,10 +97,12 @@ export function findGutterLine(imageData: ImageData, corners: Corners): GutterLi
   const searchStart = Math.max(0, Math.round(box.minX + searchMargin));
   const searchEnd = Math.min(width, Math.round(box.maxX - searchMargin));
 
-  const fallbackX = clampSplitX(Math.round((box.minX + box.maxX) / 2), width);
-  const fallback: GutterLine = { topX: fallbackX, bottomX: fallbackX };
+  const geometricFallback: GutterLine = {
+    topX: clampSplitX(Math.round(predictGeometricGutterX(corners, top)), width),
+    bottomX: clampSplitX(Math.round(predictGeometricGutterX(corners, bottom)), width),
+  };
   if (searchEnd - searchStart < 2 || bottom - top < 1) {
-    return fallback;
+    return geometricFallback;
   }
 
   const bandBounds = splitIntoBands(top, bottom, NUM_BANDS);
@@ -79,7 +115,7 @@ export function findGutterLine(imageData: ImageData, corners: Corners): GutterLi
 
   // 過半数のバンドが谷を検出できていない = 全高で一貫した暗部ではない可能性が高い
   if (points.length < MIN_AGREEING_BANDS) {
-    return fallback;
+    return geometricFallback;
   }
 
   // 1段階目: 有効な全バンド候補で最小二乗フィットする。最上段・最下段の2点だけで傾きを決めると、
@@ -92,16 +128,27 @@ export function findGutterLine(imageData: ImageData, corners: Corners): GutterLi
 
   // 直線に乗っているバンドが過半数に満たない = バンド間の一致が弱く、信頼できない
   if (inliers.length < MIN_AGREEING_BANDS) {
-    return fallback;
+    return geometricFallback;
   }
 
   // 2段階目: 無関係な物体などの外れ値を除いたinliersだけで再フィットし、精度を上げる。
   const fit = fitLine(inliers);
-
-  return {
+  const detected: GutterLine = {
     topX: clampSplitX(Math.round(predictX(fit, top)), width),
     bottomX: clampSplitX(Math.round(predictX(fit, bottom)), width),
   };
+
+  // バンド同士は一致していても、その一致した位置自体が真の綴じ目から大きく離れている場合
+  // (印刷物・机の質感等が偶然バンド間で一致する暗部を作った場合)、幾何学的な予測に基づいて
+  // 検出結果を棄却する。
+  const geometricToleranceX = (box.maxX - box.minX) * GEOMETRIC_ANCHOR_TOLERANCE_RATIO;
+  const topDeviation = Math.abs(detected.topX - geometricFallback.topX);
+  const bottomDeviation = Math.abs(detected.bottomX - geometricFallback.bottomX);
+  if (topDeviation > geometricToleranceX || bottomDeviation > geometricToleranceX) {
+    return geometricFallback;
+  }
+
+  return detected;
 }
 
 type LineFit = { slope: number; intercept: number };

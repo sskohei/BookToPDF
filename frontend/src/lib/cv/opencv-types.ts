@@ -84,10 +84,28 @@ export interface CvModule {
   contourArea(contour: CvMat): number;
   arcLength(curve: CvMat, closed: boolean): number;
   approxPolyDP(curve: CvMat, approxCurve: CvMat, epsilon: number, closed: boolean): void;
-  /** 対応点など、座標配列から直接Matを作る(型は `CV_32FC2` を想定)。 */
-  matFromArray(rows: number, cols: number, type: number, array: number[]): CvMat;
+  /**
+   * 対応点(`CV_32FC2`)やリマップ用の座標配列(`CV_32FC1`、`dewarpPage.ts`)など、
+   * 座標配列から直接Matを作る。後者は要素数が画素数分(数百万規模)になりうるため、
+   * 通常の`number[]`への変換コストを避けられるよう`Float32Array`も受け付ける。
+   */
+  matFromArray(rows: number, cols: number, type: number, array: number[] | Float32Array): CvMat;
   getPerspectiveTransform(src: CvMat, dst: CvMat): CvMat;
   warpPerspective(src: CvMat, dst: CvMat, transform: CvMat, dsize: CvSize): void;
+  /**
+   * `dewarpPage.ts`のルールドサーフェス変形で使う汎用リマップ。`map1`/`map2`は出力先の各画素に
+   * 対応する元画像上のソース座標(x, y)をそれぞれ`CV_32FC1`のMatとして持つ(`matFromArray`で
+   * `Float32Array`から作る)。
+   */
+  remap(
+    src: CvMat,
+    dst: CvMat,
+    map1: CvMat,
+    map2: CvMat,
+    interpolation: number,
+    borderMode?: number,
+    borderValue?: number[],
+  ): void;
   exceptionFromPtr(ptr: unknown): CvException;
   /** 低コントラスト画像でCannyエッジを出やすくするためのヒストグラム平坦化。 */
   equalizeHist(src: CvMat, dst: CvMat): void;
@@ -141,6 +159,7 @@ export interface CvModule {
   readonly RETR_EXTERNAL: number;
   readonly CHAIN_APPROX_SIMPLE: number;
   readonly CV_32FC2: number;
+  readonly CV_32FC1: number;
   readonly MORPH_CLOSE: number;
   readonly MORPH_OPEN: number;
   readonly MORPH_RECT: number;

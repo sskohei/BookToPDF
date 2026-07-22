@@ -1,5 +1,6 @@
 import type { CvMat, CvMatVector, CvModule } from "../opencv-types";
-import { orderCorners, type Point } from "../geometry";
+import { refineQuadCorners, splitContourIntoEdges } from "../contourGeometry";
+import { orderCorners, selectTopBottomEdges, type Point } from "../geometry";
 import type { CvOperations } from "../protocol";
 import { averageCornerBrightness } from "./trimMargins";
 
@@ -30,6 +31,24 @@ const APPROX_EPSILON_RATIOS = [0.01, 0.02, 0.03, 0.05, 0.08];
  * 矩形がページと誤認されてしまう。
  */
 const MIN_AREA_RATIO = 0.4;
+/**
+ * `refineQuadCorners`が求めた交点が生の`approxPolyDP`頂点からこの比率(画像短辺に対する)を
+ * 超えて離れていたら、外挿誤差による暴走とみなし生の頂点にフォールバックする(`RefineQuadOptions.maxDisplacement`)。
+ * 実写真(木目調の机・手など背景ノイズを含む)での検証で、ページ外周辺のわずかな傾きでも
+ * 辺全体へのフィットを頂点まで外挿すると数十〜100px超ずれることが確認されたため、
+ * 「多少のノイズ補正」は許容しつつ「外挿誤差による暴走」は確実に弾ける小さめの値にする。
+ */
+const CORNER_MAX_DISPLACEMENT_RATIO = 0.01;
+const CORNER_MAX_DISPLACEMENT_MIN = 15;
+
+/**
+ * 4点近似に収束した輪郭候補。`points`は輪郭辺への直線フィット交点で精密化済みの4頂点
+ * (`refineQuadCorners`参照)、`edges`はその4頂点の間の密な輪郭点(4辺分、`points`と同じ順序で
+ * インデックスが対応する)で、見開き湾曲補正(`dewarpPage`)が上下辺の曲線をフィットする際に
+ * 再利用する。`minAreaRect`由来の`fallback`候補には対応する密輪郭の辺分割が無いため`edges`を
+ * 持たない。
+ */
+type ConvergedCandidate = { points: Point[]; area: number; edges?: Point[][] };
 
 /**
  * `attemptDetection`が1回のパス内で見つけた最良候補。`converged`(4点近似に収束した輪郭のうち
@@ -38,7 +57,7 @@ const MIN_AREA_RATIO = 0.4;
  * 同種同士は面積が大きい方を採用する」という基準で比較できるようにする。
  */
 type DetectionAttempt = {
-  converged?: { points: Point[]; area: number };
+  converged?: ConvergedCandidate;
   fallback?: { points: Point[]; area: number };
 };
 
@@ -93,16 +112,26 @@ function computeKernelSize(width: number, height: number, ratio: number, min: nu
   return clamped % 2 === 0 ? clamped + 1 : clamped;
 }
 
+/** 画像短辺に対する比率(下限あり)から、四隅精密化の最大許容補正量(px)を求める。 */
+function computeCornerMaxDisplacement(width: number, height: number): number {
+  const shortSide = Math.min(width, height);
+  return Math.max(CORNER_MAX_DISPLACEMENT_MIN, Math.round(shortSide * CORNER_MAX_DISPLACEMENT_RATIO));
+}
+
 /**
  * `contours`から、段階的に緩めたepsilonで4点に近似でき、かつ画像に対して十分な面積を持つ輪郭の
  * うち最大のものを`converged`候補として返す。4点近似が一度も得られない場合でも、面積条件を
  * 満たす最大の輪郭があれば`minAreaRect`による回転外接矩形を`fallback`候補として返す。
  * `contours`自体の削除は呼び出し側の責務(このMatVectorは複数の呼び出し元で生成されるため)。
  */
-function scoreContours(cv: CvModule, contours: CvMatVector, minArea: number): DetectionAttempt {
+function scoreContours(
+  cv: CvModule,
+  contours: CvMatVector,
+  minArea: number,
+  cornerMaxDisplacement: number,
+): DetectionAttempt {
   const approx = new cv.Mat();
-  let bestPoints: Point[] | undefined;
-  let bestArea = 0;
+  let best: ConvergedCandidate | undefined;
   let fallbackPoints: Point[] | undefined;
   let fallbackArea = 0;
 
@@ -128,9 +157,19 @@ function scoreContours(cv: CvModule, contours: CvMatVector, minArea: number): De
         if (area < minArea) continue;
 
         if (converged) {
-          if (area > bestArea) {
-            bestArea = area;
-            bestPoints = points;
+          if (!best || area > best.area) {
+            // approxPolyDPの4頂点をそのまま使わず、輪郭全体(間引かれる前)の4辺への
+            // 直線フィット交点として精密化する(refineQuadCorners参照)。頂点位置の
+            // ノイズ・角の丸まりの影響を抑え、台形補正のズレを減らす。
+            const denseContour = matToPoints(contour);
+            const refinedPoints = refineQuadCorners(denseContour, points, {
+              maxDisplacement: cornerMaxDisplacement,
+            });
+            // 密な輪郭点が無い(テスト用モック等)場合、edgesは空配列4つになってしまい
+            // 「データはあるが空」と「そもそも無い」を呼び出し側で区別できなくなるため、
+            // その場合はedges自体を持たせない。
+            const edges = denseContour.length > 0 ? splitContourIntoEdges(denseContour, points) : undefined;
+            best = { points: refinedPoints, area, edges };
           }
         } else if (area > fallbackArea) {
           const rotatedRect = cv.minAreaRect(contour);
@@ -146,7 +185,7 @@ function scoreContours(cv: CvModule, contours: CvMatVector, minArea: number): De
   }
 
   return {
-    converged: bestPoints ? { points: bestPoints, area: bestArea } : undefined,
+    converged: best,
     fallback: fallbackPoints ? { points: fallbackPoints, area: fallbackArea } : undefined,
   };
 }
@@ -171,7 +210,7 @@ function attemptDetectionViaCanny(cv: CvModule, source: CvMat, width: number, he
     cv.findContours(edges, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
 
     const minArea = width * height * MIN_AREA_RATIO;
-    return scoreContours(cv, contours, minArea);
+    return scoreContours(cv, contours, minArea, computeCornerMaxDisplacement(width, height));
   } finally {
     edges.delete();
     contours.delete();
@@ -227,7 +266,7 @@ function attemptDetectionViaThreshold(cv: CvModule, source: CvMat, width: number
     cv.findContours(closed, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
 
     const minArea = width * height * MIN_AREA_RATIO;
-    return scoreContours(cv, contours, minArea);
+    return scoreContours(cv, contours, minArea, computeCornerMaxDisplacement(width, height));
   } finally {
     mask.delete();
     opened.delete();
@@ -245,21 +284,19 @@ function attemptDetectionViaThreshold(cv: CvModule, source: CvMat, width: number
  * 表・図版など小さく強いコントラストの矩形が先に見つかっても、他のパスでより大きい(＝ページ
  * 本体である可能性が高い)候補が見つかっていればそちらを優先できる。
  */
-function pickBest(attempts: DetectionAttempt[]): Point[] | undefined {
+function pickBest(attempts: DetectionAttempt[]): { points: Point[]; edges?: Point[][] } | undefined {
   const converged = attempts
     .map((attempt) => attempt.converged)
-    .filter((candidate): candidate is { points: Point[]; area: number } => candidate !== undefined);
+    .filter((candidate): candidate is ConvergedCandidate => candidate !== undefined);
   if (converged.length > 0) {
-    return converged.reduce((best, candidate) => (candidate.area > best.area ? candidate : best))
-      .points;
+    return converged.reduce((best, candidate) => (candidate.area > best.area ? candidate : best));
   }
 
   const fallback = attempts
     .map((attempt) => attempt.fallback)
     .filter((candidate): candidate is { points: Point[]; area: number } => candidate !== undefined);
   if (fallback.length > 0) {
-    return fallback.reduce((best, candidate) => (candidate.area > best.area ? candidate : best))
-      .points;
+    return fallback.reduce((best, candidate) => (candidate.area > best.area ? candidate : best));
   }
 
   return undefined;
@@ -298,7 +335,11 @@ export function runDetectCorners(
     const threshold = attemptDetectionViaThreshold(cv, blurred, width, height);
 
     const best = pickBest([cannyPrimary, cannySecondary, threshold]);
-    return best ? { found: true, corners: orderCorners(best) } : { found: false };
+    if (!best) return { found: false };
+
+    const corners = orderCorners(best.points);
+    const edgeCurves = best.edges ? selectTopBottomEdges(best.points, best.edges, corners) : undefined;
+    return edgeCurves ? { found: true, corners, edgeCurves } : { found: true, corners };
   } finally {
     src.delete();
     gray.delete();

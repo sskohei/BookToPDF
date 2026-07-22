@@ -13,6 +13,10 @@ export type Corners = {
  * 回転を検出できない/回転がない場合は`topX === bottomX`になり、単一の垂直な分割線として扱われる。 */
 export type GutterLine = { topX: number; bottomX: number };
 
+/** `detectCorners`が上下辺に沿って保持した密な輪郭点(見開き湾曲補正`dewarpPage`が曲線
+ * フィットに使う)。輪郭辺への直線フィットで頂点を精密化できなかった場合など、無い場合もある。 */
+export type EdgeCurvePoints = { top: Point[]; bottom: Point[] };
+
 /**
  * `findContours`/`approxPolyDP` が返す4点は輪郭をたどった順序で並んでおり、
  * どの点が左上/右上/右下/左下かは画像の傾きや輪郭の向きに依存して定まらない。
@@ -55,11 +59,15 @@ export function quadSize(corners: Corners): { width: number; height: number } {
 }
 
 /**
- * 単ページの本は通常縦長(width/height < 1)、見開きは横幅がほぼページ2枚分
- * (width/height はおおよそ1.4〜2.0)になる。閾値はarchitecture.md/roadmap.mdに具体的な
- * 指定がないため、単ページとの間に十分マージンを取れる値としてこのissueで選定した。
+ * 単ページの本は通常縦長(width/height < 1、実写真でもせいぜい0.9程度)になる一方、見開きは
+ * 常に横長(width/height >= 1)になる(正方形に近いページの本であっても、2ページを横に
+ * 並べれば必ず高さより幅の方が大きくなる)ため、1.0を境界とするのが最も原理的である。
+ * 以前は1.2としていたが、実写真での検証で、四隅検出の精度やページ自体の縦横比によっては
+ * 実際の見開きでも1.2をわずかに下回る(実測1.19程度)ことが確認され、見開きが単ページとして
+ * 誤判定される回帰を招いた。単ページとの間には依然として十分なマージンがあるため、
+ * 1.0まで下げてもマージンを取れる値としてこのissueで選定した。
  */
-const SPREAD_ASPECT_RATIO_THRESHOLD = 1.2;
+const SPREAD_ASPECT_RATIO_THRESHOLD = 1.0;
 
 export function classifySpread(corners: Corners): "single" | "spread" {
   const { width, height } = quadSize(corners);
@@ -90,6 +98,52 @@ function interpolateYAtX(p0: Point, p1: Point, x: number): number {
  * その左端(`min(topX,bottomX)`)分だけ引いてローカル座標(0起点)に直してある。ページ検出
  * (`detectCorners`)が独立再検出に失敗した場合のフォールバックとして使う。
  */
+function nearestPointIndex(points: readonly Point[], target: Point): number {
+  let bestIndex = 0;
+  let bestDistSq = Infinity;
+  points.forEach((p, i) => {
+    const distSq = (p.x - target.x) ** 2 + (p.y - target.y) ** 2;
+    if (distSq < bestDistSq) {
+      bestDistSq = distSq;
+      bestIndex = i;
+    }
+  });
+  return bestIndex;
+}
+
+/**
+ * `detectCorners`が輪郭から得た4頂点(`points`、輪郭をたどった順序、`orderCorners`で
+ * 並べ替える前)とその間の4辺(`edges`、`points`と同じ順序でインデックスが対応する、
+ * `contourGeometry.ts`の`splitContourIntoEdges`が返す形式)を、既に並べ替え済みの`corners`と
+ * 突き合わせ、上辺(topLeft→topRight)・下辺(bottomLeft→bottomRight)に対応する弧を
+ * 向き(常にleft側の頂点から始まる向き)を揃えて返す。`corners`は精密化(頂点位置の補正)を
+ * 経ている場合があり`points`の値と完全一致しない可能性があるため、最近傍点で対応を取る。
+ * 該当する辺が見つからない場合(頂点数不一致など、通常は起きないはずの防御的なケース)は
+ * `undefined`を返す。
+ */
+export function selectTopBottomEdges(
+  points: readonly Point[],
+  edges: readonly Point[][],
+  corners: Corners,
+): { top: Point[]; bottom: Point[] } | undefined {
+  if (points.length !== 4 || edges.length !== 4) return undefined;
+
+  const pickEdge = (a: Point, b: Point): Point[] | undefined => {
+    const ia = nearestPointIndex(points, a);
+    const ib = nearestPointIndex(points, b);
+    if (ia === ib) return undefined;
+    if ((ia + 1) % 4 === ib) return edges[ia];
+    if ((ib + 1) % 4 === ia) return [...edges[ib]].reverse();
+    return undefined;
+  };
+
+  const top = pickEdge(corners.topLeft, corners.topRight);
+  const bottom = pickEdge(corners.bottomLeft, corners.bottomRight);
+  if (!top || !bottom) return undefined;
+
+  return { top, bottom };
+}
+
 export function deriveHalfCorners(corners: Corners, gutterLine: GutterLine): [Corners, Corners] {
   const topGutter: Point = {
     x: gutterLine.topX,
@@ -117,4 +171,34 @@ export function deriveHalfCorners(corners: Corners, gutterLine: GutterLine): [Co
   };
 
   return [left, right];
+}
+
+/**
+ * 見開き全体の`edgeCurves`(分割前、元画像座標系での上下辺の密な輪郭点)を、`gutterLine`の
+ * x座標で左右に振り分ける。上辺は`gutterLine.topX`、下辺は`gutterLine.bottomX`をそれぞれの
+ * 閾値とする(手持ち撮影による回転で綴じ目が斜めの場合、上辺と下辺で分割位置が異なるため)。
+ * 右半分は`deriveHalfCorners`/`splitImageDataAt`と同じ`min(topX, bottomX)`分だけx座標を
+ * シフトし、分割後の画像のローカル座標系に合わせる。分割後の再検出(`detectCorners`)は
+ * 綴じ目側の輪郭が信頼できない(`mergeGutterSideCorners`参照)ため、湾曲補正用の曲線データは
+ * 常にこの関数で分割前の輪郭から導出し、信頼できない再検出結果は使わない。
+ */
+export function splitEdgeCurvesAtGutter(
+  edgeCurves: EdgeCurvePoints,
+  gutterLine: GutterLine,
+): [EdgeCurvePoints, EdgeCurvePoints] {
+  const minX = Math.min(gutterLine.topX, gutterLine.bottomX);
+
+  const splitAt = (points: readonly Point[], thresholdX: number): [Point[], Point[]] => {
+    const left = points.filter((p) => p.x <= thresholdX);
+    const right = points.filter((p) => p.x >= thresholdX).map((p) => ({ x: p.x - minX, y: p.y }));
+    return [left, right];
+  };
+
+  const [topLeft, topRight] = splitAt(edgeCurves.top, gutterLine.topX);
+  const [bottomLeft, bottomRight] = splitAt(edgeCurves.bottom, gutterLine.bottomX);
+
+  return [
+    { top: topLeft, bottom: bottomLeft },
+    { top: topRight, bottom: bottomRight },
+  ];
 }

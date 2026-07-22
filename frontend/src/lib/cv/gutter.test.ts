@@ -235,13 +235,39 @@ describe("findGutterLine", () => {
       return Math.abs(x - gx) <= 2 ? DARK : BRIGHT;
     });
 
-    const result = findGutterLine(imageData, fullFrameCorners(width, height));
+    // 見開き全体の外周四隅も、綴じ目と同じ回転を反映した(左右対称な幅を保つ)形にする。
+    // 実際のdetectCornersは本の回転を四隅にも正しく反映するため、このテストのように
+    // 「四隅は無回転(fullFrameCorners)なのに綴じ目だけ回転している」という組み合わせは
+    // 非現実的で、GEOMETRIC_ANCHOR_TOLERANCE_RATIOによる裏取りが誤って発動してしまう。
+    const corners: Corners = {
+      topLeft: { x: topTrueX - 100, y: 0 },
+      topRight: { x: topTrueX + 100, y: 0 },
+      bottomLeft: { x: bottomTrueX - 100, y: height },
+      bottomRight: { x: bottomTrueX + 100, y: height },
+    };
+
+    const result = findGutterLine(imageData, corners);
 
     expect(result.topX).toBeGreaterThanOrEqual(topTrueX - 6);
     expect(result.topX).toBeLessThanOrEqual(topTrueX + 6);
     expect(result.bottomX).toBeGreaterThanOrEqual(bottomTrueX - 6);
     expect(result.bottomX).toBeLessThanOrEqual(bottomTrueX + 6);
     expect(result.bottomX).toBeGreaterThan(result.topX);
+  });
+
+  it("falls back to the geometric prediction when the detected valley is far from where the outer corners imply the gutter should be", () => {
+    // 実写真での回帰: 印刷物・机の質感等がバンド間で偶然一致する暗部を作ると、
+    // 深さ・幅・両側回復・バンド一致といった既存のチェックを全て通過してしまうことがある。
+    // 外周四隅(左右ページはほぼ同じ幅)から予測される位置と大きく異なる場合は、
+    // その輝度谷検出結果を信頼せず、幾何学的な予測にフォールバックするべき。
+    const width = 200;
+    const height = 150;
+    const decoyX = 60; // 外周四隅からの幾何学的予測(100)から40px = box幅200の20%離れている
+    const imageData = makeImageData(width, height, (x) => (Math.abs(x - decoyX) <= 2 ? DARK : BRIGHT));
+
+    const result = findGutterLine(imageData, fullFrameCorners(width, height));
+
+    expect(result).toEqual({ topX: 100, bottomX: 100 });
   });
 
   it("prefers a wide gradual valley (a real gutter shadow) over a narrow sharp one (a printed rule line)", () => {

@@ -74,17 +74,55 @@ describe("computeDeskewAngle", () => {
     expect(angle).toBeLessThan(5);
   });
 
-  it("excludes lines beyond the +-15 degree tilt assumption", () => {
+  it("rejects a line whose angle disagrees with the consensus of the others", () => {
     const lines = fakeMat();
     lines.data32S = linesFromSegments([
       [0, 0, 100, 2],
       [0, 0, 100, 3],
       [0, 0, 100, 1],
-      [0, 0, 10, 100], // near-vertical, ~84deg, excluded
+      [0, 0, 10, 100], // near-vertical, ~84deg, far from the ~1-2deg consensus of the others
     ]);
     expect(computeDeskewAngle(lines)).not.toBe(0);
     // sanity: only the 3 near-horizontal lines contribute, median of [~1.15, ~1.72, ~0.57] ~= 1.15
     expect(computeDeskewAngle(lines)).toBeCloseTo(1.15, 1);
+  });
+
+  it("corrects a genuine ~20 degree residual tilt when the lines agree with each other", () => {
+    // Simulates a photo where corner-detection inaccuracy (症状「台形補正のズレ」) leaves a much
+    // larger residual tilt than the "small" tilt architecture.md originally assumed. Since all
+    // lines agree with each other, this should be corrected rather than zeroed.
+    const lines = fakeMat();
+    lines.data32S = linesFromSegments([
+      [0, 0, 100, 36], // ~19.8deg
+      [0, 0, 100, 38], // ~20.8deg
+      [0, 0, 100, 34], // ~18.8deg
+    ]);
+    const angle = computeDeskewAngle(lines);
+    expect(angle).toBeGreaterThan(15);
+    expect(angle).toBeLessThan(25);
+  });
+
+  it("still rejects decorative-line noise even when the genuine tilt is large", () => {
+    const lines = fakeMat();
+    lines.data32S = linesFromSegments([
+      [0, 0, 100, 36], // ~19.8deg
+      [0, 0, 100, 38], // ~20.8deg
+      [0, 0, 100, 34], // ~18.8deg
+      [0, 0, 100, -2], // ~-1.1deg, unrelated near-horizontal noise, far from the ~20deg consensus
+    ]);
+    const angle = computeDeskewAngle(lines);
+    expect(angle).toBeGreaterThan(15);
+    expect(angle).toBeLessThan(25);
+  });
+
+  it("returns 0 when the consensus angle exceeds the sanity ceiling", () => {
+    const lines = fakeMat();
+    lines.data32S = linesFromSegments([
+      [0, 0, 100, 84], // ~40deg
+      [0, 0, 100, 86], // ~40.7deg
+      [0, 0, 100, 82], // ~39.4deg
+    ]);
+    expect(computeDeskewAngle(lines)).toBe(0);
   });
 
   it("returns 0 when fewer than 3 valid lines are found", () => {
@@ -92,6 +130,16 @@ describe("computeDeskewAngle", () => {
     lines.data32S = linesFromSegments([
       [0, 0, 100, 5],
       [0, 0, 100, 5],
+    ]);
+    expect(computeDeskewAngle(lines)).toBe(0);
+  });
+
+  it("returns 0 when fewer than 3 lines agree after consensus filtering", () => {
+    const lines = fakeMat();
+    lines.data32S = linesFromSegments([
+      [0, 0, 100, 2], // ~1.15deg
+      [0, 0, 10, 100], // ~84deg
+      [0, 0, 10, -100], // ~-84deg
     ]);
     expect(computeDeskewAngle(lines)).toBe(0);
   });
@@ -134,6 +182,7 @@ function buildCv(linesData32S: Int32Array) {
     matFromArray: vi.fn() as unknown as CvModule["matFromArray"],
     getPerspectiveTransform: vi.fn() as unknown as CvModule["getPerspectiveTransform"],
     warpPerspective: vi.fn(),
+    remap: vi.fn(),
     exceptionFromPtr: vi.fn(() => ({ msg: "unused" })),
     equalizeHist: vi.fn(),
     morphologyEx: vi.fn(),
@@ -158,6 +207,7 @@ function buildCv(linesData32S: Int32Array) {
     RETR_EXTERNAL: 21,
     CHAIN_APPROX_SIMPLE: 22,
     CV_32FC2: 0,
+    CV_32FC1: 0,
     MORPH_CLOSE: 31,
     MORPH_OPEN: 30,
     MORPH_RECT: 32,
@@ -220,6 +270,36 @@ describe("runDeskew", () => {
     expect(lines.deleted).toBe(true);
     expect(rotationMatrix.deleted).toBe(true);
     expect(rotated.deleted).toBe(true);
+  });
+
+  it("rotates by a genuine ~20 degree residual tilt (previously silently zeroed at >15deg)", () => {
+    const linesData = linesFromSegments([
+      [0, 0, 100, 36],
+      [0, 0, 100, 38],
+      [0, 0, 100, 34],
+    ]);
+    const { cv, rotationMatrix } = buildCv(linesData);
+    const imageData = new FakeImageData(new Uint8ClampedArray(400), 10, 10) as unknown as ImageData;
+
+    const result = runDeskew(cv, { imageData });
+
+    expect(cv.getRotationMatrix2D).toHaveBeenCalledWith(
+      { x: 5, y: 5 },
+      expect.any(Number),
+      1.0,
+    );
+    const [, appliedAngle] = (cv.getRotationMatrix2D as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(appliedAngle).toBeGreaterThan(15);
+    expect(cv.warpAffine).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      rotationMatrix,
+      { width: 10, height: 10 },
+      cv.INTER_LINEAR,
+      cv.BORDER_CONSTANT,
+      [255, 255, 255, 255],
+    );
+    expect(result.angleDegrees).toBeGreaterThan(15);
   });
 
   it("skips warpAffine and returns the input unchanged when no confident angle is found", () => {

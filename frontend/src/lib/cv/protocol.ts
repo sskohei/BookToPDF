@@ -1,4 +1,6 @@
-import type { Corners } from "./geometry";
+import type { Corners, EdgeCurvePoints } from "./geometry";
+
+export type { EdgeCurvePoints } from "./geometry";
 
 /**
  * メインスレッドとcv Web Worker間でやり取りするメッセージのプロトコル定義。
@@ -15,11 +17,21 @@ export interface CvOperations {
    */
   detectCorners: {
     input: { imageData: ImageData };
-    output: { found: true; corners: Corners } | { found: false };
+    output: { found: true; corners: Corners; edgeCurves?: EdgeCurvePoints } | { found: false };
   };
   perspectiveTransform: {
     input: { imageData: ImageData; corners: Corners };
     output: { imageData: ImageData };
+  };
+  /**
+   * `perspectiveTransform`を一般化し、見開き綴じ目付近の湾曲(平面のホモグラフィでは
+   * 直せない)が有意な場合はルールドサーフェス変形(`cv.remap`)で補正する。`edgeCurves`が
+   * 無い、または湾曲が有意でない(フラットなページ)場合は`perspectiveTransform`と全く同じ
+   * 結果になる(`curved: false`で示す)。
+   */
+  dewarpPage: {
+    input: { imageData: ImageData; corners: Corners; edgeCurves?: EdgeCurvePoints };
+    output: { imageData: ImageData; curved: boolean };
   };
   /**
    * 透視変換後に残る微小な傾きを補正する。`angleDegrees`は実際に回転補正した角度

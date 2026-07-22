@@ -10,12 +10,23 @@ const HOUGH_THRESHOLD = 80;
 const HOUGH_MIN_LINE_LENGTH_RATIO = 0.25;
 const HOUGH_MAX_LINE_GAP = 20;
 /**
- * 透視変換後に残るのは「微小な」傾きのみという前提(architecture.md)のため、この角度を
- * 超える線は本文の行ではなく別の直線的な模様等とみなして角度計算から除外する。
+ * 暫定中央値からこの角度以上離れた線は、本文の行ではなく別の直線的な模様(装飾罫線等)由来の
+ * 外れ値とみなして除外する(`gutter.ts`の`LINE_AGREEMENT_TOLERANCE_RATIO`と同じ「まず全体で
+ * 粗く推定し、そこから外れるものを弾いてから再推定する」という2段階のロバスト推定の考え方)。
+ * 四隅検出の精度に応じて実際に残る傾きの大きさは変わりうるため、線同士が互いに一致している
+ * (=合意している)かどうかで判定し、絶対角度による足切りはしない。
  */
-const MAX_TILT_ANGLE_DEGREES = 15;
-/** この本数未満しか有効な線が見つからない場合は、自信を持って補正できないとみなし補正しない。 */
+const CONSENSUS_TOLERANCE_DEGREES = 5;
+/** 合意した(=暫定中央値に近い)線がこの本数未満の場合は、自信を持って補正できないとみなし補正しない。 */
 const MIN_VALID_LINE_COUNT = 3;
+/**
+ * 2段階目で合意が取れた最終角度に対する最後の妥当性チェック。透視変換後に本来残るのは
+ * 微小な傾きのはずだが、四隅検出の精度不足(症状「台形補正のズレ」)によりこれより大きい
+ * 残存傾きが生じることもあるため、完全に0点だった旧`MAX_TILT_ANGLE_DEGREES`(15度)より
+ * 緩めた値にして、合意の取れた大きめの傾きも補正できるようにしつつ、Hough線が模様等に
+ * 引っ張られて明らかに暴走した場合の安全弁として残す。
+ */
+const SANITY_MAX_ANGLE_DEGREES = 30;
 
 /**
  * 線分の向きを`atan2`で求めた角度(-180〜180度)を、水平線を基準とした-90〜90度の範囲に
@@ -28,11 +39,21 @@ function normalizeAngle(angleDegrees: number): number {
   return angleDegrees;
 }
 
+function median(values: readonly number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+}
+
 /**
  * `HoughLinesP`が返す線分群(`lines.data32S`に`[x1,y1,x2,y2]`が1行ずつ)から、水平からの
- * 残存傾き角度を求める。±`MAX_TILT_ANGLE_DEGREES`を超える線(本文の行ではなさそうなもの)は
- * 除外し、残った角度の中央値を返す(外れ値に強いため平均ではなく中央値を採用)。有効な線が
- * `MIN_VALID_LINE_COUNT`未満の場合は自信を持って補正できないため`0`(補正なし)を返す。
+ * 残存傾き角度を求める。`gutter.ts`の`findGutterLine`と同じ「まず粗く全体の中央値を取り、
+ * そこから大きく外れる線を除いてから再度中央値を取る」という2段階のロバスト推定を使う
+ * (絶対角度による個々の線の足切りはしない)。これにより、四隅検出の精度不足などで実際に
+ * 大きめの残存傾きが生じている場合でも、線同士が互いに一致していれば補正できる。一方で、
+ * 装飾罫線など本文の行とは無関係な線は、1段目の中央値との不一致(2段目のフィルタ)で
+ * 引き続き除外される。合意した線が`MIN_VALID_LINE_COUNT`未満、または最終角度が
+ * `SANITY_MAX_ANGLE_DEGREES`を超える場合は、自信を持って補正できないとみなし`0`を返す。
  */
 export function computeDeskewAngle(lines: CvMat): number {
   const data = lines.data32S;
@@ -40,17 +61,17 @@ export function computeDeskewAngle(lines: CvMat): number {
 
   for (let i = 0; i + 3 < data.length; i += 4) {
     const [x1, y1, x2, y2] = [data[i], data[i + 1], data[i + 2], data[i + 3]];
-    const angle = normalizeAngle((Math.atan2(y2 - y1, x2 - x1) * 180) / Math.PI);
-    if (Math.abs(angle) <= MAX_TILT_ANGLE_DEGREES) {
-      angles.push(angle);
-    }
+    angles.push(normalizeAngle((Math.atan2(y2 - y1, x2 - x1) * 180) / Math.PI));
   }
 
   if (angles.length < MIN_VALID_LINE_COUNT) return 0;
 
-  angles.sort((a, b) => a - b);
-  const mid = Math.floor(angles.length / 2);
-  return angles.length % 2 === 0 ? (angles[mid - 1] + angles[mid]) / 2 : angles[mid];
+  const provisional = median(angles);
+  const inliers = angles.filter((angle) => Math.abs(angle - provisional) <= CONSENSUS_TOLERANCE_DEGREES);
+  if (inliers.length < MIN_VALID_LINE_COUNT) return 0;
+
+  const refined = median(inliers);
+  return Math.abs(refined) > SANITY_MAX_ANGLE_DEGREES ? 0 : refined;
 }
 
 /**
