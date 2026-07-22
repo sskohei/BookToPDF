@@ -243,4 +243,35 @@ describe("findGutterLine", () => {
     expect(result.bottomX).toBeLessThanOrEqual(bottomTrueX + 6);
     expect(result.bottomX).toBeGreaterThan(result.topX);
   });
+
+  it("prefers a wide gradual valley (a real gutter shadow) over a narrow sharp one (a printed rule line)", () => {
+    // Real photos of books with diagrams/tables printed close to the inner margin (e.g. a
+    // shogi puzzle book) can have a printed border line that is just as deep and just as
+    // well-recovered on both sides as the true gutter shadow, but is only a few pixels wide -
+    // unlike the gutter's shadow, which is physically a soft, wide gradient. Depth and
+    // two-sided recovery alone can't tell these apart; only width can.
+    const width = 2000;
+    const height = 1500;
+    const trueGutterX = 1000;
+    const trueGutterRadius = 40; // wide, gradual ramp -> ~5% of the search window's width
+    const decoyLineX = 700; // narrow, sharp -> well under 1% of the search window's width
+
+    const imageData = makeImageData(width, height, (x) => {
+      const distance = Math.abs(x - trueGutterX);
+      if (distance <= trueGutterRadius) {
+        const t = distance / trueGutterRadius;
+        const value = Math.round(20 + t * (240 - 20));
+        return [value, value, value];
+      }
+      if (Math.abs(x - decoyLineX) <= 1) return DARK;
+      return BRIGHT;
+    });
+
+    const result = findGutterLine(imageData, fullFrameCorners(width, height));
+
+    expect(result.topX).toBeGreaterThanOrEqual(trueGutterX - 10);
+    expect(result.topX).toBeLessThanOrEqual(trueGutterX + 10);
+    expect(result.bottomX).toBeGreaterThanOrEqual(trueGutterX - 10);
+    expect(result.bottomX).toBeLessThanOrEqual(trueGutterX + 10);
+  });
 });
