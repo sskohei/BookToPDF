@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef } from "react";
 import { fileToImageData, imageDataToObjectUrl } from "../lib/cv/browserImage";
 import { createCvWorkerClient, type CvWorkerClient } from "../lib/cv/client";
 import { classifySpread, deriveHalfCorners, type Corners } from "../lib/cv/geometry";
-import { findGutterX } from "../lib/cv/gutter";
+import { findGutterLine } from "../lib/cv/gutter";
 import { splitImageDataAt } from "../lib/cv/imageSplit";
 import type { PageImage } from "./pageImages";
 
@@ -95,20 +95,31 @@ async function runCorrectionPipeline(
     return;
   }
 
-  const gutterX = findGutterX(imageData, corners);
-  const [left, right] = splitImageDataAt(imageData, gutterX);
-  const [leftFallbackCorners, rightFallbackCorners] = deriveHalfCorners(corners, gutterX);
+  const gutterLine = findGutterLine(imageData, corners);
+  const [left, right] = splitImageDataAt(imageData, gutterLine);
+  const [leftFallbackCorners, rightFallbackCorners] = deriveHalfCorners(corners, gutterLine);
 
   const [leftDetected, rightDetected] = await Promise.all([
     client.run("detectCorners", { imageData: left }),
     client.run("detectCorners", { imageData: right }),
   ]);
 
-  // 綴じ目側の辺は本が物理的に連続しているため輪郭が存在せず、独立再検出
-  // (detectCorners)は失敗しうる。その場合は外周四隅+綴じ目位置から幾何学的に
-  // 導出した四隅にフォールバックし、その半分をサイレントに欠落させない。
-  const leftCorners = leftDetected.found ? leftDetected.corners : leftFallbackCorners;
-  const rightCorners = rightDetected.found ? rightDetected.corners : rightFallbackCorners;
+  // 綴じ目側の辺は本が物理的に連続しているため輪郭が薄く、独立再検出(detectCorners)では
+  // 隣ページとの境目を正しく見つけられないことがある(見つからず`found: false`になるのではなく、
+  // 綴じ目を無視してラスター分割の切り口自体をページの辺と誤認し、隣ページの三角形のくさびを
+  // 巻き込んだ`found: true`の四隅を返してしまう)。そのため綴じ目側の2頂点は常に
+  // `gutterLine`から幾何学的に導出した点を使い、背景とのコントラストが強く独立検出が信頼できる
+  // 外周側の2頂点だけをdetectCornersの結果(見つかれば)で上書きする。
+  const leftCorners = mergeGutterSideCorners(
+    leftDetected.found ? leftDetected.corners : null,
+    leftFallbackCorners,
+    "left",
+  );
+  const rightCorners = mergeGutterSideCorners(
+    rightDetected.found ? rightDetected.corners : null,
+    rightFallbackCorners,
+    "right",
+  );
 
   const urls = await Promise.all(
     [
@@ -121,6 +132,31 @@ async function runCorrectionPipeline(
     }),
   );
   onUrls(urls);
+}
+
+/**
+ * 見開き分割後の半分の四隅を組み立てる。外周側(背景とのコントラストが強く、独立検出
+ * `detectCorners`が信頼できる2頂点)は検出結果があればそれを使い、綴じ目側(隣ページとの
+ * 境目が薄く、検出結果を信用すると隣ページのくさびを巻き込みうる2頂点)は常に`fallback`
+ * (`deriveHalfCorners`が`gutterLine`から幾何学的に導出したもの)を使う。`detected`が
+ * `null`(独立検出に完全に失敗した)場合は`fallback`をそのまま使う。
+ */
+function mergeGutterSideCorners(detected: Corners | null, fallback: Corners, side: "left" | "right"): Corners {
+  if (!detected) return fallback;
+  if (side === "left") {
+    return {
+      topLeft: detected.topLeft,
+      bottomLeft: detected.bottomLeft,
+      topRight: fallback.topRight,
+      bottomRight: fallback.bottomRight,
+    };
+  }
+  return {
+    topRight: detected.topRight,
+    bottomRight: detected.bottomRight,
+    topLeft: fallback.topLeft,
+    bottomLeft: fallback.bottomLeft,
+  };
 }
 
 async function processImage(

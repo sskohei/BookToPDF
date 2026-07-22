@@ -125,7 +125,7 @@ describe("cornersBoundingBox", () => {
 });
 
 describe("deriveHalfCorners", () => {
-  it("splits an axis-aligned spread rectangle at the given gutter x", () => {
+  it("splits an axis-aligned spread rectangle at the given gutter x (vertical line, topX === bottomX)", () => {
     const corners: Corners = {
       topLeft: { x: 0, y: 0 },
       topRight: { x: 200, y: 0 },
@@ -133,7 +133,7 @@ describe("deriveHalfCorners", () => {
       bottomLeft: { x: 0, y: 150 },
     };
 
-    const [left, right] = deriveHalfCorners(corners, 100);
+    const [left, right] = deriveHalfCorners(corners, { topX: 100, bottomX: 100 });
 
     expect(left).toEqual({
       topLeft: { x: 0, y: 0 },
@@ -159,7 +159,7 @@ describe("deriveHalfCorners", () => {
       bottomLeft: { x: 0, y: 180 },
     };
 
-    const [left, right] = deriveHalfCorners(corners, 100);
+    const [left, right] = deriveHalfCorners(corners, { topX: 100, bottomX: 100 });
 
     expect(left).toEqual({
       topLeft: { x: 20, y: 0 },
@@ -172,6 +172,33 @@ describe("deriveHalfCorners", () => {
       topRight: { x: 80, y: 20 },
       bottomRight: { x: 100, y: 200 },
       bottomLeft: { x: 0, y: 190 },
+    });
+  });
+
+  it("derives non-rectangular half quads from a slanted gutter line (topX !== bottomX)", () => {
+    // A rotated photo: the gutter's top point sits at x=90, bottom point at x=110.
+    const corners: Corners = {
+      topLeft: { x: 0, y: 0 },
+      topRight: { x: 200, y: 0 },
+      bottomRight: { x: 200, y: 150 },
+      bottomLeft: { x: 0, y: 150 },
+    };
+
+    const [left, right] = deriveHalfCorners(corners, { topX: 90, bottomX: 110 });
+
+    expect(left).toEqual({
+      topLeft: { x: 0, y: 0 },
+      topRight: { x: 90, y: 0 },
+      bottomRight: { x: 110, y: 150 },
+      bottomLeft: { x: 0, y: 150 },
+    });
+    // Right half's local origin is shifted by min(topX, bottomX) = 90, matching
+    // splitImageDataAt's raster crop start for the overlapping right half.
+    expect(right).toEqual({
+      topLeft: { x: 0, y: 0 },
+      topRight: { x: 110, y: 0 },
+      bottomRight: { x: 110, y: 150 },
+      bottomLeft: { x: 20, y: 150 },
     });
   });
 });
