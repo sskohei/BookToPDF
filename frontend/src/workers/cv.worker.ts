@@ -1,5 +1,6 @@
 import { runDeskew } from "../lib/cv/operations/deskew";
 import { runDetectCorners } from "../lib/cv/operations/detectCorners";
+import { runDewarpPage } from "../lib/cv/operations/dewarpPage";
 import { runEnhanceContrast } from "../lib/cv/operations/enhanceContrast";
 import { runGrayscale } from "../lib/cv/operations/grayscale";
 import { runPerspectiveTransform } from "../lib/cv/operations/perspectiveTransform";
@@ -66,6 +67,14 @@ function runOperation(cv: CvModule, request: CvJobRequest): CvJobResult {
         op: "perspectiveTransform",
         ok: true,
         output: runPerspectiveTransform(cv, request.input),
+      };
+    case "dewarpPage":
+      return {
+        kind: "job-result",
+        id: request.id,
+        op: "dewarpPage",
+        ok: true,
+        output: runDewarpPage(cv, request.input),
       };
     case "deskew":
       return {

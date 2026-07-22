@@ -5,7 +5,10 @@ import {
   deriveHalfCorners,
   orderCorners,
   quadSize,
+  selectTopBottomEdges,
+  splitEdgeCurvesAtGutter,
   type Corners,
+  type EdgeCurvePoints,
   type Point,
 } from "./geometry";
 
@@ -109,6 +112,20 @@ describe("classifySpread", () => {
 
     expect(classifySpread(corners)).toBe("spread");
   });
+
+  it("classifies a real spread photo whose aspect ratio is just under the old 1.2 threshold as spread", () => {
+    // 実写真での回帰: 4000x3000の実写真から自動検出された見開き全体の四隅は
+    // width=2944, height=2478 (ratio≈1.188) だった。旧しきい値1.2ではこれが単ページとして
+    // 誤判定され、ユーザーが手動で四隅を調整しないと見開きとして認識されなかった。
+    const corners: Corners = {
+      topLeft: { x: 0, y: 0 },
+      topRight: { x: 2944, y: 0 },
+      bottomRight: { x: 2944, y: 2478 },
+      bottomLeft: { x: 0, y: 2478 },
+    };
+
+    expect(classifySpread(corners)).toBe("spread");
+  });
 });
 
 describe("cornersBoundingBox", () => {
@@ -199,6 +216,137 @@ describe("deriveHalfCorners", () => {
       topRight: { x: 110, y: 0 },
       bottomRight: { x: 110, y: 150 },
       bottomLeft: { x: 20, y: 150 },
+    });
+  });
+});
+
+describe("selectTopBottomEdges", () => {
+  const topLeft: Point = { x: 0, y: 0 };
+  const topRight: Point = { x: 100, y: 0 };
+  const bottomRight: Point = { x: 100, y: 150 };
+  const bottomLeft: Point = { x: 0, y: 150 };
+  const corners: Corners = { topLeft, topRight, bottomRight, bottomLeft };
+
+  it("returns the top edge as-is and reverses the bottom edge to start at bottomLeft", () => {
+    // points/edges follow a clockwise contour traversal: TL->TR->BR->BL->TL.
+    const points = [topLeft, topRight, bottomRight, bottomLeft];
+    const topEdge: Point[] = [{ x: 30, y: -1 }, { x: 70, y: -1 }];
+    const rightEdge: Point[] = [{ x: 101, y: 75 }];
+    const bottomEdgeBrToBl: Point[] = [
+      { x: 150, y: 152 },
+      { x: 100, y: 153 },
+      { x: 50, y: 152 },
+    ];
+    const leftEdge: Point[] = [{ x: -1, y: 75 }];
+    const edges = [topEdge, rightEdge, bottomEdgeBrToBl, leftEdge];
+
+    const result = selectTopBottomEdges(points, edges, corners);
+
+    expect(result?.top).toEqual(topEdge);
+    expect(result?.bottom).toEqual([...bottomEdgeBrToBl].reverse());
+  });
+
+  it("still finds the right edges when points start at a different corner in the same cycle", () => {
+    // Counter-clockwise cycle starting at bottomRight: BR->BL->TL->TR->(BR).
+    const points = [bottomRight, bottomLeft, topLeft, topRight];
+    const bottomEdgeBrToBl: Point[] = [{ x: 50, y: 152 }];
+    const leftEdge: Point[] = [{ x: -1, y: 75 }];
+    const topEdge: Point[] = [{ x: 50, y: -1 }];
+    const rightEdge: Point[] = [{ x: 101, y: 75 }];
+    const edges = [bottomEdgeBrToBl, leftEdge, topEdge, rightEdge];
+
+    const result = selectTopBottomEdges(points, edges, corners);
+
+    expect(result?.top).toEqual(topEdge);
+    expect(result?.bottom).toEqual([...bottomEdgeBrToBl].reverse());
+  });
+
+  it("returns undefined for a degenerate quad where corners can't be distinguished", () => {
+    const samePoint: Point = { x: 5, y: 5 };
+    const points = [samePoint, samePoint, samePoint, samePoint];
+    const edges = [[samePoint], [samePoint], [samePoint], [samePoint]];
+
+    expect(selectTopBottomEdges(points, edges, corners)).toBeUndefined();
+  });
+});
+
+describe("splitEdgeCurvesAtGutter", () => {
+  it("splits at a vertical gutter (topX === bottomX), shifting the right half by the gutter x", () => {
+    const edgeCurves: EdgeCurvePoints = {
+      top: [
+        { x: 0, y: 0 },
+        { x: 50, y: 0 },
+        { x: 100, y: 0 },
+        { x: 200, y: 0 },
+      ],
+      bottom: [
+        { x: 0, y: 150 },
+        { x: 100, y: 150 },
+        { x: 200, y: 150 },
+      ],
+    };
+
+    const [left, right] = splitEdgeCurvesAtGutter(edgeCurves, { topX: 100, bottomX: 100 });
+
+    expect(left).toEqual({
+      top: [
+        { x: 0, y: 0 },
+        { x: 50, y: 0 },
+        { x: 100, y: 0 },
+      ],
+      bottom: [
+        { x: 0, y: 150 },
+        { x: 100, y: 150 },
+      ],
+    });
+    expect(right).toEqual({
+      top: [
+        { x: 0, y: 0 },
+        { x: 100, y: 0 },
+      ],
+      bottom: [
+        { x: 0, y: 150 },
+        { x: 100, y: 150 },
+      ],
+    });
+  });
+
+  it("uses topX/bottomX independently for a slanted gutter, shifting by min(topX, bottomX)", () => {
+    const edgeCurves: EdgeCurvePoints = {
+      top: [
+        { x: 0, y: 0 },
+        { x: 90, y: 5 },
+        { x: 200, y: 0 },
+      ],
+      bottom: [
+        { x: 0, y: 150 },
+        { x: 110, y: 148 },
+        { x: 200, y: 150 },
+      ],
+    };
+
+    const [left, right] = splitEdgeCurvesAtGutter(edgeCurves, { topX: 90, bottomX: 110 });
+
+    expect(left).toEqual({
+      top: [
+        { x: 0, y: 0 },
+        { x: 90, y: 5 },
+      ],
+      bottom: [
+        { x: 0, y: 150 },
+        { x: 110, y: 148 },
+      ],
+    });
+    // 右半分は min(90, 110) = 90 だけxをシフトする(splitImageDataAt/deriveHalfCornersと同じ規約)。
+    expect(right).toEqual({
+      top: [
+        { x: 0, y: 5 },
+        { x: 110, y: 0 },
+      ],
+      bottom: [
+        { x: 20, y: 148 },
+        { x: 110, y: 150 },
+      ],
     });
   });
 });
