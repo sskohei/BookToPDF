@@ -142,6 +142,7 @@ export interface CvModule {
   readonly CHAIN_APPROX_SIMPLE: number;
   readonly CV_32FC2: number;
   readonly MORPH_CLOSE: number;
+  readonly MORPH_OPEN: number;
   readonly MORPH_RECT: number;
   readonly THRESH_BINARY: number;
   readonly THRESH_BINARY_INV: number;

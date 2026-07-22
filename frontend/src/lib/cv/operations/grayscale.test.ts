@@ -64,6 +64,7 @@ const unusedCvMembers: Pick<
   | "CHAIN_APPROX_SIMPLE"
   | "CV_32FC2"
   | "MORPH_CLOSE"
+  | "MORPH_OPEN"
   | "MORPH_RECT"
   | "COLOR_RGBA2RGB"
   | "COLOR_RGB2RGBA"
@@ -107,6 +108,7 @@ const unusedCvMembers: Pick<
   CHAIN_APPROX_SIMPLE: 0,
   CV_32FC2: 0,
   MORPH_CLOSE: 0,
+  MORPH_OPEN: 0,
   MORPH_RECT: 0,
   COLOR_RGBA2RGB: 0,
   COLOR_RGB2RGBA: 0,

@@ -1,6 +1,7 @@
-import type { CvMat, CvModule } from "../opencv-types";
+import type { CvMat, CvMatVector, CvModule } from "../opencv-types";
 import { orderCorners, type Point } from "../geometry";
 import type { CvOperations } from "../protocol";
+import { averageCornerBrightness } from "./trimMargins";
 
 const GAUSSIAN_KSIZE = 5;
 /** auto-Canny(メディアンベース)のしきい値幅を決める係数。値が大きいほど閾値の許容幅が広がる。 */
@@ -10,6 +11,16 @@ const CLOSING_KERNEL_RATIO = 0.01;
 const CLOSING_KERNEL_MIN = 3;
 /** 短辺3000〜4000px程度のスマホ写真でも1%スケールのカーネルに近づけるための上限。 */
 const CLOSING_KERNEL_MAX = 51;
+/** Otsu二値化パスの開処理(反射などの細い誤検出領域の除去)カーネルサイズの比率・下限・上限。 */
+const THRESHOLD_OPEN_KERNEL_RATIO = 0.005;
+const THRESHOLD_OPEN_KERNEL_MIN = 3;
+const THRESHOLD_OPEN_KERNEL_MAX = 25;
+/** Otsu二値化パスの閉処理(本文の文字・図版による穴を塗りつぶす)カーネルサイズの比率・下限・上限。 */
+const THRESHOLD_CLOSE_KERNEL_RATIO = 0.008;
+const THRESHOLD_CLOSE_KERNEL_MIN = 3;
+const THRESHOLD_CLOSE_KERNEL_MAX = 41;
+/** 輝度がこの値以上なら「明るい背景」とみなす(0-255)。trimMargins.tsと同じ考え方。 */
+const BRIGHT_BACKGROUND_THRESHOLD = 128;
 /** 4点近似を試すepsilon比率。緩いものへ段階的に緩和し、4点に収束した時点で採用する。 */
 const APPROX_EPSILON_RATIOS = [0.01, 0.02, 0.03, 0.05, 0.08];
 /**
@@ -74,54 +85,28 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-/** 画像短辺に対する比率からクロージングカーネルサイズ(奇数)を求める。 */
-function computeClosingKernelSize(width: number, height: number): number {
+/** 画像短辺に対する比率からモルフォロジー用カーネルサイズ(奇数)を求める。 */
+function computeKernelSize(width: number, height: number, ratio: number, min: number, max: number): number {
   const shortSide = Math.min(width, height);
-  const raw = Math.round(shortSide * CLOSING_KERNEL_RATIO);
-  const clamped = clamp(raw, CLOSING_KERNEL_MIN, CLOSING_KERNEL_MAX);
+  const raw = Math.round(shortSide * ratio);
+  const clamped = clamp(raw, min, max);
   return clamped % 2 === 0 ? clamped + 1 : clamped;
 }
 
 /**
- * auto-Canny → モルフォロジークロージング → findContours で `source`（グレースケール、
- * ぼかし済み）から輪郭候補を洗い出し、段階的に緩めたepsilonで4点に近似でき、かつ画像に対して
- * 十分な面積を持つ輪郭のうち最大のものを`converged`候補として返す。4点近似が一度も得られない
- * 場合でも、面積条件を満たす最大の輪郭があれば`minAreaRect`による回転外接矩形を`fallback`候補
- * として返す。どちらをページ境界として採用するかは呼び出し側(`runDetectCorners`)が複数パスの
- * 結果と合わせて判断する。この関数が確保する`Mat`は全て内部の`finally`で削除する。
+ * `contours`から、段階的に緩めたepsilonで4点に近似でき、かつ画像に対して十分な面積を持つ輪郭の
+ * うち最大のものを`converged`候補として返す。4点近似が一度も得られない場合でも、面積条件を
+ * 満たす最大の輪郭があれば`minAreaRect`による回転外接矩形を`fallback`候補として返す。
+ * `contours`自体の削除は呼び出し側の責務(このMatVectorは複数の呼び出し元で生成されるため)。
  */
-function attemptDetection(
-  cv: CvModule,
-  source: CvMat,
-  width: number,
-  height: number,
-): DetectionAttempt {
-  const edges = new cv.Mat();
-  const contours = new cv.MatVector();
-  const hierarchy = new cv.Mat();
+function scoreContours(cv: CvModule, contours: CvMatVector, minArea: number): DetectionAttempt {
   const approx = new cv.Mat();
-  const closingKernelSize = computeClosingKernelSize(width, height);
-  const kernel = cv.getStructuringElement(
-    cv.MORPH_RECT,
-    new cv.Size(closingKernelSize, closingKernelSize),
-  );
+  let bestPoints: Point[] | undefined;
+  let bestArea = 0;
+  let fallbackPoints: Point[] | undefined;
+  let fallbackArea = 0;
 
   try {
-    const median = computeMedianIntensity(source.data);
-    const { low, high } = computeAutoCannyThresholds(median);
-    cv.Canny(source, edges, low, high);
-    cv.morphologyEx(edges, edges, cv.MORPH_CLOSE, kernel);
-
-    cv.findContours(edges, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
-
-    const imageArea = width * height;
-    const minArea = imageArea * MIN_AREA_RATIO;
-
-    let bestPoints: Point[] | undefined;
-    let bestArea = 0;
-    let fallbackPoints: Point[] | undefined;
-    let fallbackArea = 0;
-
     const contourCount = contours.size();
     for (let i = 0; i < contourCount; i++) {
       const contour = contours.get(i);
@@ -156,17 +141,101 @@ function attemptDetection(
         contour.delete();
       }
     }
+  } finally {
+    approx.delete();
+  }
 
-    return {
-      converged: bestPoints ? { points: bestPoints, area: bestArea } : undefined,
-      fallback: fallbackPoints ? { points: fallbackPoints, area: fallbackArea } : undefined,
-    };
+  return {
+    converged: bestPoints ? { points: bestPoints, area: bestArea } : undefined,
+    fallback: fallbackPoints ? { points: fallbackPoints, area: fallbackArea } : undefined,
+  };
+}
+
+/**
+ * auto-Canny → モルフォロジークロージング → findContours で `source`（グレースケール、
+ * ぼかし済み）から輪郭候補を洗い出す。この関数が確保する`Mat`は全て内部の`finally`で削除する。
+ */
+function attemptDetectionViaCanny(cv: CvModule, source: CvMat, width: number, height: number): DetectionAttempt {
+  const edges = new cv.Mat();
+  const contours = new cv.MatVector();
+  const hierarchy = new cv.Mat();
+  const closingKernelSize = computeKernelSize(width, height, CLOSING_KERNEL_RATIO, CLOSING_KERNEL_MIN, CLOSING_KERNEL_MAX);
+  const kernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(closingKernelSize, closingKernelSize));
+
+  try {
+    const median = computeMedianIntensity(source.data);
+    const { low, high } = computeAutoCannyThresholds(median);
+    cv.Canny(source, edges, low, high);
+    cv.morphologyEx(edges, edges, cv.MORPH_CLOSE, kernel);
+
+    cv.findContours(edges, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+    const minArea = width * height * MIN_AREA_RATIO;
+    return scoreContours(cv, contours, minArea);
   } finally {
     edges.delete();
     contours.delete();
     hierarchy.delete();
-    approx.delete();
     kernel.delete();
+  }
+}
+
+/**
+ * Otsu二値化(大津の手法)→モルフォロジー開閉→findContoursで輪郭候補を洗い出す。
+ * `attemptDetectionViaCanny`は、木目調の机など質感のある背景を持つ実写真では、背景由来の
+ * エッジと真のページ境界のエッジが入り交じり、輪郭が閉じたループを形成できず検出に失敗しやすい
+ * (実写真での検証で確認済み。Cannyのエッジマップ自体は目視ではページの輪郭が繋がって見えても、
+ * `findContours`が実際に拾うのは面積がほぼ0の細長い縮退した輪郭で、ページ全体を覆う輪郭には
+ * ならなかった)。Otsu二値化はページ(明)と背景(暗、またはその逆)の明度差を直接領域として
+ * 分離するため、質感のある背景でもページ全体を1つの塗りつぶし領域として安定して検出できる。
+ * 四隅の輝度をサンプリングして極性(ページが明るいか暗いか)を判定する点は`trimMargins.ts`と
+ * 同じ考え方(`averageCornerBrightness`を共有)。開処理(open)は反射などの細い誤検出領域を
+ * 除去し、閉処理(close)は本文中の文字・図版による小さな穴を塗りつぶす。
+ */
+function attemptDetectionViaThreshold(cv: CvModule, source: CvMat, width: number, height: number): DetectionAttempt {
+  const mask = new cv.Mat();
+  const opened = new cv.Mat();
+  const closed = new cv.Mat();
+  const contours = new cv.MatVector();
+  const hierarchy = new cv.Mat();
+  const openKernelSize = computeKernelSize(
+    width,
+    height,
+    THRESHOLD_OPEN_KERNEL_RATIO,
+    THRESHOLD_OPEN_KERNEL_MIN,
+    THRESHOLD_OPEN_KERNEL_MAX,
+  );
+  const closeKernelSize = computeKernelSize(
+    width,
+    height,
+    THRESHOLD_CLOSE_KERNEL_RATIO,
+    THRESHOLD_CLOSE_KERNEL_MIN,
+    THRESHOLD_CLOSE_KERNEL_MAX,
+  );
+  const openKernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(openKernelSize, openKernelSize));
+  const closeKernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(closeKernelSize, closeKernelSize));
+
+  try {
+    const backgroundIsBright = averageCornerBrightness(source, width, height) >= BRIGHT_BACKGROUND_THRESHOLD;
+    // maskはページ側が255になるようにする(背景が明るいならBINARY_INVで明るい方を0に反転)。
+    const thresholdType = (backgroundIsBright ? cv.THRESH_BINARY_INV : cv.THRESH_BINARY) | cv.THRESH_OTSU;
+    cv.threshold(source, mask, 0, 255, thresholdType);
+
+    cv.morphologyEx(mask, opened, cv.MORPH_OPEN, openKernel);
+    cv.morphologyEx(opened, closed, cv.MORPH_CLOSE, closeKernel);
+
+    cv.findContours(closed, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+    const minArea = width * height * MIN_AREA_RATIO;
+    return scoreContours(cv, contours, minArea);
+  } finally {
+    mask.delete();
+    opened.delete();
+    closed.delete();
+    contours.delete();
+    hierarchy.delete();
+    openKernel.delete();
+    closeKernel.delete();
   }
 }
 
@@ -197,14 +266,16 @@ function pickBest(attempts: DetectionAttempt[]): Point[] | undefined {
 }
 
 /**
- * grayscale化 → GaussianBlur した上で`attemptDetection`を試みる。実写真は白い紙×明るい机など
- * ページと背景の輝度差がごく小さいことが多く、その場合`attemptDetection`はCannyエッジ自体が
- * 出ず輪郭を1つも検出できない。そのため`equalizeHist`（ヒストグラム平坦化）で輝度差を強調した
- * 画像でも必ず2回目を試す。1回目で(ページ本体ではなく)ページ内の表・図版など強コントラストな
- * 小さい矩形が先に見つかってしまうケースがあり、1回目が見つけた時点で確定してしまうと、
- * 2回目で見つかるはずの(より大きい)本来のページ候補を試す機会を失ってしまうため、常に両方の
- * パスを実行してから`pickBest`で比較する（高コントラストな画像では両パスの結果はほぼ同じになる
- * ため、既存の成功ケースへの影響は小さい）。
+ * grayscale化 → GaussianBlur した上で、Cannyエッジベース・Otsu二値化ベースそれぞれの検出を
+ * 試みる。実写真は白い紙×明るい机などページと背景の輝度差がごく小さいことが多く、その場合
+ * Cannyエッジベースの検出はエッジ自体が出ず輪郭を1つも検出できないことがあるため、
+ * `equalizeHist`（ヒストグラム平坦化）で輝度差を強調した画像でも同様にCannyベースを試す。
+ * さらに、質感のある背景(木目調の机等)ではCannyベースの輪郭が閉じたループを形成できず
+ * 検出に失敗しやすいことが実写真での検証で判明したため、Otsu二値化ベースの検出も常に試す
+ * (`attemptDetectionViaThreshold`のコメント参照)。1回目で(ページ本体ではなく)ページ内の
+ * 表・図版など強コントラストな小さい矩形が先に見つかってしまうケースがあり、1回目が見つけた
+ * 時点で確定してしまうと、他のパスで見つかるはずの(より大きい)本来のページ候補を試す機会を
+ * 失ってしまうため、常に全パスを実行してから`pickBest`で比較する。
  * 見つからない場合は例外を投げず `{ found: false }` を返す（呼び出し側が手動調整UIに委ねる判断材料にする）。
  */
 export function runDetectCorners(
@@ -222,10 +293,11 @@ export function runDetectCorners(
     cv.GaussianBlur(gray, blurred, new cv.Size(GAUSSIAN_KSIZE, GAUSSIAN_KSIZE), 0);
     cv.equalizeHist(blurred, equalized);
 
-    const primary = attemptDetection(cv, blurred, width, height);
-    const secondary = attemptDetection(cv, equalized, width, height);
+    const cannyPrimary = attemptDetectionViaCanny(cv, blurred, width, height);
+    const cannySecondary = attemptDetectionViaCanny(cv, equalized, width, height);
+    const threshold = attemptDetectionViaThreshold(cv, blurred, width, height);
 
-    const best = pickBest([primary, secondary]);
+    const best = pickBest([cannyPrimary, cannySecondary, threshold]);
     return best ? { found: true, corners: orderCorners(best) } : { found: false };
   } finally {
     src.delete();

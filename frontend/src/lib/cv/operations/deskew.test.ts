@@ -159,6 +159,7 @@ function buildCv(linesData32S: Int32Array) {
     CHAIN_APPROX_SIMPLE: 22,
     CV_32FC2: 0,
     MORPH_CLOSE: 31,
+    MORPH_OPEN: 30,
     MORPH_RECT: 32,
     THRESH_BINARY: 0,
     THRESH_BINARY_INV: 1,

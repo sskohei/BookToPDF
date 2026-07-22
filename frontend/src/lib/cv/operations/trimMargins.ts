@@ -15,7 +15,7 @@ const BRIGHT_BACKGROUND_THRESHOLD = 128;
  * 回転によって作る四隅の白い余白ウェッジのため、実際に四隅を直接サンプリングするのが
  * 最も直接的で誤検出が少ない。
  */
-function averageCornerBrightness(gray: CvMat, width: number, height: number): number {
+export function averageCornerBrightness(gray: CvMat, width: number, height: number): number {
   const data = gray.data;
   const patch = Math.min(CORNER_SAMPLE_SIZE, width, height);
   const corners: Array<[number, number]> = [
