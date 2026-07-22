@@ -1,11 +1,8 @@
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
+import { waitForProcessingToSettle } from "./testUtils";
 
 const fixture = (name: string) => path.join(__dirname, "fixtures", name);
-
-async function waitForProcessingToSettle(page: Page) {
-  await expect(page.getByTestId("preview-status-processing")).toHaveCount(0);
-}
 
 async function dragHandle(page: Page, testId: string, dx: number, dy: number) {
   const handle = page.getByTestId(testId);
