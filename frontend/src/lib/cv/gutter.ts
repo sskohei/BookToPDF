@@ -30,6 +30,11 @@ const MIN_AGREEING_BANDS = Math.ceil(NUM_BANDS / 2);
  * 「その直線に乗っていない」とみなすかの許容ばらつき(探索窓幅に対する比率)。手持ち撮影による
  * 回転で綴じ目が斜めの直線になっても許容しつつ、無関係な物体が直線に紛れ込まない狭さを狙う。 */
 const LINE_AGREEMENT_TOLERANCE_RATIO = 0.15;
+/** 谷とみなすために必要な最小の幅(探索窓幅に対する比率)。実写真の実測(綴じ目の影は数十px以上の
+ * なだらかな幅を持つのに対し、本の紙面に印刷された罫線(図版の外枠など)は輝度の深さ・両側の回復と
+ * いう条件だけなら綴じ目の影と区別がつかないが、幅はわずか数pxしかない)を踏まえて選定した値。
+ * 深さ・両側回復だけでは印刷された罫線を綴じ目の影と誤認してしまうため、幅で区別する。 */
+const MIN_VALLEY_WIDTH_RATIO = 0.015;
 
 function luminance(data: Uint8ClampedArray, pixelIndex: number): number {
   const offset = pixelIndex * 4;
@@ -192,6 +197,8 @@ function findBandCandidate(
     suffixMax[i] = runningMax;
   }
 
+  const minValleyWidth = Math.max(1, Math.round(smoothed.length * MIN_VALLEY_WIDTH_RATIO));
+
   // 深さが同点の場合は探索窓の中央に近い候補を優先する(綴じ目は中央付近にあるはずという前提に
   // 沿う)。単純に最初に見つかった(=最も左の)候補を採用すると、無関係な暗部がたまたま同じ深さで
   // 中央寄りの本物の谷より先にヒットした場合に誤って選んでしまう。
@@ -207,6 +214,14 @@ function findBandCandidate(
     // (探索窓の端まで暗が続く)場合は綴じ目の影ではなく物体の縁・段差の可能性が高いため除外する
     const recoveryTarget = value + (mean - value) * VALLEY_RECOVERY_RATIO;
     if (prefixMax[i] < recoveryTarget || suffixMax[i] < recoveryTarget) continue;
+
+    // 谷の幅(recoveryTargetを下回る連続区間の長さ)が狭すぎる場合は除外する。紙面に印刷された
+    // 罫線(図版の外枠など)は、深さ・両側回復という条件だけなら綴じ目の影と区別がつかないが、
+    // 幅はわずか数pxしかない。綴じ目の影は物理的な陰影なので、なだらかで数十px以上の幅を持つ。
+    let width = 1;
+    for (let j = i - 1; j >= 0 && smoothed[j] <= recoveryTarget; j--) width++;
+    for (let j = i + 1; j < smoothed.length && smoothed[j] <= recoveryTarget; j++) width++;
+    if (width < minValleyWidth) continue;
 
     const distanceFromCenter = Math.abs(i - center);
     if (value < bestValue || (value === bestValue && distanceFromCenter < bestDistanceFromCenter)) {
